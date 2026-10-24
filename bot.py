@@ -1,6 +1,6 @@
 """
-Como Estamos - bot de sentimiento BTC - Fase 2 (prueba de conexión)
-Envía a Telegram el cierre diario de BTC y el índice Fear & Greed.
+Como Estamos - bot de sentimiento BTC - Fase 3 (estructura)
+Envía a Telegram el cierre diario de BTC, la estructura de mercado y el índice Fear & Greed.
 """
 
 import json
@@ -8,6 +8,8 @@ import os
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
+
+from estructura import analizar_estructura, preparar_velas, texto_estructura
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
@@ -60,6 +62,7 @@ def main():
     minimo = float(ultima[3])
     cambio = (cierre / float(anterior[4]) - 1) * 100
 
+    est = analizar_estructura(preparar_velas(velas))
     fg_valor, fg_texto = fear_and_greed()
 
     flecha = "🟢" if cambio >= 0 else "🔴"
@@ -68,8 +71,9 @@ def main():
         f"Vela del {fecha}\n\n"
         f"₿ Cierre: <b>${cierre:,.0f}</b> {flecha} {cambio:+.2f}%\n"
         f"Máximo: ${maximo:,.0f} | Mínimo: ${minimo:,.0f}\n\n"
+        f"{texto_estructura(est)}\n\n"
         f"😨 Fear & Greed: <b>{fg_valor}</b> ({fg_texto})\n\n"
-        f"<i>Fase 2: prueba de conexión. Estructura y noticias llegan en las próximas fases.</i>"
+        f"<i>Fase 3: estructura activa. Noticias y escenarios llegan en las próximas fases.</i>"
     )
 
     respuesta = enviar_telegram(mensaje)
