@@ -12,7 +12,7 @@ Reglas (vela diaria):
 
 from datetime import datetime, timezone
 
-N_SWING = 3  # velas a cada lado para confirmar un swing (ajustable)
+N_SWING = 5  # igual que "Swing" en SMC Propio (5 velas a cada lado)
 
 
 def _fecha(ts):
@@ -52,9 +52,9 @@ def analizar_estructura(velas, n=N_SWING):
             der = velas[j + 1:j + n + 1]
             # Empates: se permite igualar a la izquierda, a la derecha debe ser estricto
             if all(centro["h"] >= v["h"] for v in izq) and all(centro["h"] > v["h"] for v in der):
-                ultimo_max = {"precio": centro["h"], "t": centro["t"], "roto": False}
+                ultimo_max = {"precio": centro["h"], "t": centro["t"], "roto": False, "barrido": False}
             if all(centro["l"] <= v["l"] for v in izq) and all(centro["l"] < v["l"] for v in der):
-                ultimo_min = {"precio": centro["l"], "t": centro["t"], "roto": False}
+                ultimo_min = {"precio": centro["l"], "t": centro["t"], "roto": False, "barrido": False}
 
         vela = velas[i]
 
@@ -64,7 +64,8 @@ def analizar_estructura(velas, n=N_SWING):
             eventos.append({"tipo": tipo, "t": vela["t"], "nivel": ultimo_max["precio"]})
             ultimo_max["roto"] = True
             tendencia = "alcista"
-        elif ultimo_max and not ultimo_max["roto"] and vela["h"] > ultimo_max["precio"] and vela["c"] < ultimo_max["precio"]:
+        elif ultimo_max and not ultimo_max["roto"] and not ultimo_max["barrido"] and vela["h"] > ultimo_max["precio"] and vela["c"] <= ultimo_max["precio"]:
+            ultimo_max["barrido"] = True  # un barrido por nivel, como en SMC Propio
             eventos.append({"tipo": "Barrido de máximo", "t": vela["t"], "nivel": ultimo_max["precio"]})
 
         if ultimo_min and not ultimo_min["roto"] and vela["c"] < ultimo_min["precio"]:
@@ -72,7 +73,8 @@ def analizar_estructura(velas, n=N_SWING):
             eventos.append({"tipo": tipo, "t": vela["t"], "nivel": ultimo_min["precio"]})
             ultimo_min["roto"] = True
             tendencia = "bajista"
-        elif ultimo_min and not ultimo_min["roto"] and vela["l"] < ultimo_min["precio"] and vela["c"] > ultimo_min["precio"]:
+        elif ultimo_min and not ultimo_min["roto"] and not ultimo_min["barrido"] and vela["l"] < ultimo_min["precio"] and vela["c"] >= ultimo_min["precio"]:
+            ultimo_min["barrido"] = True
             eventos.append({"tipo": "Barrido de mínimo", "t": vela["t"], "nivel": ultimo_min["precio"]})
 
     ultima = velas[-1]
