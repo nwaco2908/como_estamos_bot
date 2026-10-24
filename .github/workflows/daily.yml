@@ -1,0 +1,25 @@
+name: Como Estamos
+
+on:
+  schedule:
+    # 00:05 UTC = 7:05 p. m. hora Colombia (justo después del cierre diario)
+    - cron: "5 0 * * *"
+  workflow_dispatch: # permite ejecutarlo manualmente para probar
+
+jobs:
+  reporte:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v4
+
+      - name: Instalar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Ejecutar bot
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python bot.py
