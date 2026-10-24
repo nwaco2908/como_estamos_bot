@@ -21,16 +21,56 @@ def get_json(url):
         return json.loads(resp.read().decode("utf-8"))
 
 
-def velas_diarias_btc():
-    """Velas diarias de BTC/USD desde Kraken: [tiempo, open, high, low, close, ...]"""
+FUENTE = "Kraken"  # se actualiza con la fuente que respondió
+UN_DIA = 86400
+
+
+def solo_cerradas(velas):
+    """Quita la vela del día en curso: solo velas cuyo día ya terminó."""
+    ahora = datetime.now(timezone.utc).timestamp()
+    return [v for v in velas if int(v[0]) + UN_DIA <= ahora]
+
+
+def velas_bitget():
+    """Velas diarias de BTCUSDT perpetuo en Bitget, con cierre diario en UTC (igual que TradingView)."""
+    base = "https://api.bitget.com/api/v2/mix/market/candles?symbol=BTCUSDT&productType=usdt-futures&limit=500&granularity="
+    ultimo_error = None
+    for gran in ("1Dutc", "1D"):  # 1Dutc = vela diaria que cierra a las 00:00 UTC
+        try:
+            data = get_json(base + gran)
+            if data.get("code") == "00000" and data.get("data"):
+                velas = [[int(v[0]) // 1000, v[1], v[2], v[3], v[4]] for v in data["data"]]
+                velas.sort(key=lambda v: v[0])  # de la más vieja a la más nueva
+                return velas
+            ultimo_error = data.get("msg", data)
+        except Exception as e:
+            ultimo_error = e
+    raise RuntimeError(f"Bitget error: {ultimo_error}")
+
+
+def velas_kraken():
+    """Respaldo: velas diarias de BTC/USD al contado en Kraken."""
     data = get_json("https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=1440")
     if data.get("error"):
         raise RuntimeError(f"Kraken error: {data['error']}")
     resultado = data["result"]
     clave = next(k for k in resultado if k != "last")
-    velas = resultado[clave]
-    # La última vela es el día en curso (sin cerrar); usamos solo velas cerradas
-    return velas[:-1]
+    return [v[:5] for v in resultado[clave]]
+
+
+def velas_diarias_btc():
+    """Intenta Bitget primero; si falla, usa Kraken. Devuelve solo velas cerradas."""
+    global FUENTE
+    try:
+        velas = solo_cerradas(velas_bitget())
+        if len(velas) < 50:
+            raise RuntimeError("Bitget devolvió muy pocas velas")
+        FUENTE = "Bitget BTCUSDT perpetuo"
+    except Exception as e:
+        print("Bitget no disponible, uso Kraken:", e)
+        velas = solo_cerradas(velas_kraken())
+        FUENTE = "Kraken BTC/USD (respaldo)"
+    return velas
 
 
 def fear_and_greed():
@@ -73,7 +113,7 @@ def main():
         f"Máximo: ${maximo:,.0f} | Mínimo: ${minimo:,.0f}\n\n"
         f"{texto_estructura(est)}\n\n"
         f"😨 Fear & Greed: <b>{fg_valor}</b> ({fg_texto})\n\n"
-        f"<i>Fase 3: estructura activa. Noticias y escenarios llegan en las próximas fases.</i>"
+        f"<i>Fuente: {FUENTE}</i>"
     )
 
     respuesta = enviar_telegram(mensaje)
