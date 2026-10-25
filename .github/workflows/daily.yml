@@ -16,6 +16,10 @@ on:
           - semanal
         default: auto
 
+# Permite que el bot guarde su memoria (historial.json) en el repositorio
+permissions:
+  contents: write
+
 jobs:
   reporte:
     runs-on: ubuntu-latest
@@ -34,3 +38,16 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           MODO: ${{ github.event.inputs.modo || 'auto' }}
         run: python bot.py
+
+      - name: Guardar memoria del día
+        run: |
+          if [ -f historial.json ]; then
+            git config user.name "como-estamos-bot"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add historial.json
+            if ! git diff --cached --quiet; then
+              git commit -m "Memoria del día"
+              git pull --rebase
+              git push
+            fi
+          fi
