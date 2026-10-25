@@ -9,14 +9,17 @@
    "Barrido de mínimo"
   ],
   "fear_greed": 54,
-  "noticias": -50,
-  "n_titulares": 89,
+  "noticias": -53,
+  "n_titulares": 90,
   "narrativas": {},
-  "sentimiento": -21,
-  "sesgo_multitud": 45,
-  "ratio_long_short": 2.19,
-  "funding": 6.03984663578e-05,
-  "sesgo_expectativas": -6,
-  "escenario": "🟡 VIGILANCIA — Barrido sin capitulación"
+  "sentimiento": -22,
+  "sesgo_multitud": 46,
+  "ratio_long_short": 2.16,
+  "funding": 6.667031180263334e-05,
+  "sesgo_expectativas": -4,
+  "escenario": "🟡 VIGILANCIA — Barrido sin capitulación",
+  "regimen": "rango",
+  "fase_regimen": "⚪ Sin régimen claro",
+  "macro": -51
  }
 ]
