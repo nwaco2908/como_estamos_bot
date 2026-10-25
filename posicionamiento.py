@@ -34,28 +34,74 @@ def _num(d, *claves):
     return None
 
 
-def long_short_cuentas():
-    """Ratio long/short de cuentas, actual y promedio de los últimos días."""
-    datos = _get(f"account-long-short?{SIMBOLO}&period=1d")
-    if not datos:
-        return None
-    filas = sorted(datos, key=lambda d: int(d.get("ts", 0)))
-    ratios = []
+def _ratios_de_filas(filas):
+    """Acepta filas como diccionarios o como listas [ts, ratio] y devuelve ratios en orden temporal."""
+    pares = []
     for f in filas:
-        r = _num(f, "longShortAccountRatio", "longShortRatio")
-        if r is None:
-            lg, sh = _num(f, "longAccountRatio", "longRatio"), _num(f, "shortAccountRatio", "shortRatio")
-            r = lg / sh if lg and sh else None
+        if isinstance(f, (list, tuple)) and len(f) >= 2:
+            ts, r = int(f[0]), float(f[1])
+        elif isinstance(f, dict):
+            ts = int(f.get("ts") or f.get("timestamp") or 0)
+            r = _num(f, "longShortAccountRatio", "longShortRatio", "ratio")
+            if r is None:
+                lg = _num(f, "longAccountRatio", "longRatio")
+                sh = _num(f, "shortAccountRatio", "shortRatio")
+                r = lg / sh if lg and sh else None
+        else:
+            continue
         if r:
-            ratios.append(r)
+            pares.append((ts, r))
+    pares.sort()
+    return [r for _, r in pares]
+
+
+def _ls_bitget():
+    ultimo_error = None
+    for consulta in (
+        f"account-long-short?{SIMBOLO}&period=1d",
+        "account-long-short?symbol=BTCUSDT&period=1d",
+        "account-long-short?symbol=BTCUSDT&period=1D",
+        "account-long-short?symbol=BTCUSDT&period=4h",
+    ):
+        try:
+            ratios = _ratios_de_filas(_get(consulta) or [])
+            if ratios:
+                return ratios
+        except Exception as e:
+            ultimo_error = e
+    raise RuntimeError(f"Bitget: {ultimo_error}")
+
+
+def _ls_okx():
+    url = "https://www.okx.com/api/v5/rubik/stat/contracts/long-short-account-ratio?ccy=BTC&period=1D"
+    req = urllib.request.Request(url, headers={"User-Agent": "como-estamos-bot"})
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    if data.get("code") != "0":
+        raise RuntimeError(f"OKX: {data.get('msg', data)}")
+    return _ratios_de_filas(data.get("data") or [])
+
+
+def long_short_cuentas():
+    """Ratio long/short de cuentas (Bitget; si falla, OKX), actual y promedio de los últimos días."""
+    ratios, fuente, errores = [], None, []
+    for nombre, funcion in (("Bitget", _ls_bitget), ("OKX", _ls_okx)):
+        try:
+            ratios = funcion()
+            if ratios:
+                fuente = nombre
+                break
+        except Exception as e:
+            errores.append(str(e))
     if not ratios:
-        return None
+        raise RuntimeError(" | ".join(errores) or "sin datos")
+    ratios = ratios[-30:]
     actual = ratios[-1]
     promedio = sum(ratios) / len(ratios)
     pct_long = actual / (1 + actual) * 100
     hace_7d = ratios[-8] if len(ratios) >= 8 else None
     return {"ratio": actual, "promedio": promedio, "pct_long": pct_long, "dias": len(ratios),
-            "hace_7d": hace_7d}
+            "hace_7d": hace_7d, "fuente": fuente}
 
 
 def funding():
@@ -123,6 +169,7 @@ def texto_posicionamiento(pos, sesgo):
         lineas.append(
             f"Cuentas: {ls['pct_long']:.0f}% long / {100 - ls['pct_long']:.0f}% short "
             f"(ratio {ls['ratio']:.2f}, {comparado} long que su promedio de {ls['dias']} días: {ls['promedio']:.2f})"
+            + (f" [{ls['fuente']}]" if ls.get("fuente") == "OKX" else "")
         )
     f = pos.get("funding")
     if f and f.get("actual") is not None:

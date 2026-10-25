@@ -91,8 +91,11 @@ def polymarket(precio, dias_max=45):
             fin = datetime.fromisoformat((m.get("endDate") or "").replace("Z", "+00:00"))
         except ValueError:
             continue
-        if not (ahora < fin <= limite):
-            continue
+        if not (ahora + timedelta(days=4) < fin <= limite):
+            continue  # muy cerca del vencimiento = casi no dice nada de expectativas
+        distancia = abs(nivel / precio - 1)
+        if not (0.03 <= distancia <= 0.20):
+            continue  # niveles a menos de 3% son ruido; a más de 20%, poco probables
         try:
             resultados = json.loads(m.get("outcomes") or "[]")
             precios = [float(x) for x in json.loads(m.get("outcomePrices") or "[]")]
@@ -101,14 +104,17 @@ def polymarket(precio, dias_max=45):
             continue
         # Mercados de "¿estará por encima de $X el día Y?" son distintos de "¿tocará $X?",
         # pero ambos sirven para ver hacia dónde se inclina la gente.
-        fila = {"nivel": nivel, "prob": prob_si, "pregunta": pregunta, "fin": fin}
+        toque = re.search(r"\b(reach|hit|dip|fall to|drop to)\b", pregunta, re.IGNORECASE)
+        # Preferimos niveles a ~7% del precio y mercados de "¿tocará?" (no "¿estará por encima el día X?")
+        puntaje = abs(distancia - 0.07) + (0 if toque else 0.03)
+        fila = {"nivel": nivel, "prob": prob_si, "pregunta": pregunta, "fin": fin, "puntaje": puntaje}
         if BAJA.search(pregunta) and nivel < precio:
             abajo.append(fila)
         elif SUBE.search(pregunta) and nivel > precio:
             arriba.append(fila)
 
-    arriba.sort(key=lambda f: f["nivel"])
-    abajo.sort(key=lambda f: -f["nivel"])
+    arriba.sort(key=lambda f: f["puntaje"])
+    abajo.sort(key=lambda f: f["puntaje"])
     return {"arriba": arriba[:2], "abajo": abajo[:2]}
 
 
