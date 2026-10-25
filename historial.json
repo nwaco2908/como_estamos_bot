@@ -9,13 +9,13 @@
    "Barrido de mínimo"
   ],
   "fear_greed": 54,
-  "noticias": -52,
-  "n_titulares": 88,
+  "noticias": -50,
+  "n_titulares": 89,
   "narrativas": {},
-  "sentimiento": -22,
-  "sesgo_multitud": 20,
-  "ratio_long_short": 2.555,
-  "funding": 4.5e-05,
+  "sentimiento": -21,
+  "sesgo_multitud": 45,
+  "ratio_long_short": 2.19,
+  "funding": 6.03984663578e-05,
   "sesgo_expectativas": -6,
   "escenario": "🟡 VIGILANCIA — Barrido sin capitulación"
  }
