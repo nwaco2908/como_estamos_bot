@@ -16,6 +16,8 @@ from noticias import analizar_noticias, obtener_titulares, sentimiento_combinado
 from posicionamiento import obtener_posicionamiento, sesgo_multitud, texto_posicionamiento
 from expectativas import obtener_expectativas, sesgo_expectativas, texto_expectativas
 from semanal import texto_semanal
+from escenarios import evaluar, fecha_iso, texto_escenario
+import historial
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
@@ -114,7 +116,7 @@ def enviar_telegram(texto, limite=3900):
     return respuesta
 
 
-def reporte_diario(velas, est, fg_hist, pos, sesgo_pos):
+def reporte_diario(velas, est, fg_hist, pos, sesgo_pos, hist):
     ultima, anterior = velas[-1], velas[-2]
     fecha = datetime.fromtimestamp(int(ultima[0]), tz=timezone.utc).strftime("%d %b %Y")
     cierre, maximo, minimo = float(ultima[4]), float(ultima[2]), float(ultima[3])
@@ -127,12 +129,39 @@ def reporte_diario(velas, est, fg_hist, pos, sesgo_pos):
     exp = obtener_expectativas(cierre, titulares)
     sesgo_exp = sesgo_expectativas(exp)
 
+    previos = [d for d in hist if d.get("fecha") != fecha_iso(ultima)]
+    esc = evaluar(velas, est, fg_hist, combinado, noticias["puntaje"], sesgo_pos, sesgo_exp, previos)
+
+    # Memoria: guardamos el día para los próximos análisis
+    ls = (pos or {}).get("long_short") or {}
+    fu = (pos or {}).get("funding") or {}
+    try:
+        historial.guardar({
+            "fecha": fecha_iso(ultima),
+            "cierre": round(cierre, 1), "maximo": round(maximo, 1), "minimo": round(minimo, 1),
+            "tendencia": est["tendencia"],
+            "eventos": [e["tipo"] for e in est["eventos_hoy"]],
+            "fear_greed": fg_valor,
+            "noticias": noticias["puntaje"],
+            "n_titulares": noticias["total"],
+            "narrativas": noticias["narrativas"],
+            "sentimiento": combinado,
+            "sesgo_multitud": sesgo_pos,
+            "ratio_long_short": round(ls["ratio"], 3) if ls.get("ratio") else None,
+            "funding": fu.get("actual"),
+            "sesgo_expectativas": sesgo_exp,
+            "escenario": f"{esc['nivel']} {esc['titulo']}",
+        })
+    except Exception as e:
+        print("No pude guardar el historial:", e)
+
     flecha = "🟢" if cambio >= 0 else "🔴"
     return (
         f"<b>Como Estamos</b>\n"
         f"Vela del {fecha}\n\n"
         f"₿ Cierre: <b>${cierre:,.0f}</b> {flecha} {cambio:+.2f}%\n"
         f"Máximo: ${maximo:,.0f} | Mínimo: ${minimo:,.0f}\n\n"
+        f"{texto_escenario(esc)}\n\n"
         f"{texto_estructura(est)}\n\n"
         f"{texto_noticias(noticias, combinado, fg_valor, fg_texto, fallidas)}\n\n"
         f"{texto_posicionamiento(pos, sesgo_pos)}\n\n"
@@ -146,8 +175,11 @@ def reporte_semanal(velas, est, fg_hist, pos):
     noticias_sem = analizar_noticias(titulares_sem, n=5)
     cierre = float(velas[-1][4])
     exp = obtener_expectativas(cierre, titulares_sem)
-    return texto_semanal(velas, est, fg_hist, noticias_sem, pos,
-                         texto_expectativas(exp, sesgo_expectativas(exp)))
+    desde = fecha_iso(velas[-7])
+    escenarios_sem = [(d["fecha"], d.get("escenario")) for d in historial.cargar()
+                      if d.get("fecha", "") >= desde and d.get("escenario")]
+    return texto_semanal(velas, est, fg_hist[-7:], noticias_sem, pos,
+                         texto_expectativas(exp, sesgo_expectativas(exp)), escenarios_sem)
 
 
 def main():
@@ -156,14 +188,15 @@ def main():
 
     velas = velas_diarias_btc()
     est = analizar_estructura(preparar_velas(velas))
-    fg_hist = fear_and_greed(7)
+    fg_hist = fear_and_greed(10)
+    hist = historial.cargar()
     pos = obtener_posicionamiento()
     sesgo_pos = sesgo_multitud(pos)
 
     domingo_cerrado = datetime.fromtimestamp(int(velas[-1][0]), tz=timezone.utc).weekday() == 6
 
     if modo in ("auto", "diario"):
-        r = enviar_telegram(reporte_diario(velas, est, fg_hist, pos, sesgo_pos))
+        r = enviar_telegram(reporte_diario(velas, est, fg_hist, pos, sesgo_pos, hist))
         print("Diario:", "OK" if r.get("ok") else r)
     if modo == "semanal" or (modo == "auto" and domingo_cerrado):
         r = enviar_telegram(reporte_semanal(velas, est, fg_hist, pos))

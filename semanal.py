@@ -24,7 +24,7 @@ def _esc(t):
     return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def texto_semanal(velas, est, fg_hist, noticias_sem, pos, exp_texto):
+def texto_semanal(velas, est, fg_hist, noticias_sem, pos, exp_texto, escenarios_sem=None):
     semana = velas[-7:]
     apertura = float(semana[0][1])
     cierre = float(semana[-1][4])
@@ -59,6 +59,13 @@ def texto_semanal(velas, est, fg_hist, noticias_sem, pos, exp_texto):
             lineas.append(f"• {DIAS[_f(e['t']).weekday()]}: {e['tipo']} en ${e['nivel']:,.0f}")
     else:
         lineas.append("Sin BOS, CHoCH ni barridos esta semana")
+
+    # Escenarios que marcó el bot cada día
+    if escenarios_sem:
+        lineas += ["", "🎯 <b>Escenarios de la semana</b>"]
+        for fecha, esc in escenarios_sem:
+            dia = DIAS[datetime.fromisoformat(fecha).weekday()]
+            lineas.append(f"{dia}: {esc}")
 
     # Sentimiento
     lineas += ["", "🧠 <b>Sentimiento de la semana</b>"]
