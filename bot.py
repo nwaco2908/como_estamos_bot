@@ -20,7 +20,8 @@ from escenarios import evaluar, fecha_iso, texto_escenario
 import historial
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
-TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+# Uno o varios destinos separados por coma: tu chat personal, un canal (@nombre o -100...), un grupo
+DESTINOS = [d.strip() for d in os.environ["TELEGRAM_CHAT_ID"].split(",") if d.strip()]
 
 
 def get_json(url):
@@ -87,10 +88,10 @@ def fear_and_greed(dias=7):
     return [(int(d["value"]), d["value_classification"]) for d in reversed(data["data"])]
 
 
-def _enviar_un_mensaje(texto):
+def _enviar_un_mensaje(texto, chat_id):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = urllib.parse.urlencode({
-        "chat_id": TELEGRAM_CHAT_ID,
+        "chat_id": chat_id,
         "text": texto,
         "parse_mode": "HTML",
         "disable_web_page_preview": "true",
@@ -110,9 +111,18 @@ def enviar_telegram(texto, limite=3900):
         else:
             actual = f"{actual}\n\n{parte}" if actual else parte
     bloques.append(actual)
-    respuesta = {}
-    for b in bloques:
-        respuesta = _enviar_un_mensaje(b[:4096])
+    respuesta = {"ok": False}
+    for destino in DESTINOS:
+        try:
+            for b in bloques:
+                r = _enviar_un_mensaje(b[:4096], destino)
+            print(f"Enviado a {destino[:4]}…: OK")
+            respuesta = r
+        except Exception as e:
+            # Si un destino falla (p. ej. el bot no es admin del canal), los demás igual reciben
+            print(f"No pude enviar a {destino[:4]}…: {e}")
+    if not respuesta.get("ok"):
+        raise RuntimeError("No se pudo enviar a ningún destino")
     return respuesta
 
 
