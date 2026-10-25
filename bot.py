@@ -1,6 +1,8 @@
 """
-Como Estamos - bot de sentimiento BTC - Fase 3 (estructura)
-Envía a Telegram el cierre diario de BTC, la estructura de mercado y el índice Fear & Greed.
+Como Estamos - bot de sentimiento BTC
+Reporte diario: precio, estructura, sentimiento (noticias + Fear & Greed),
+posicionamiento (longs vs shorts) y expectativas de la gente.
+Los domingos (cierre de semana) envía además el resumen semanal.
 """
 
 import json
@@ -10,6 +12,10 @@ import urllib.request
 from datetime import datetime, timezone
 
 from estructura import analizar_estructura, preparar_velas, texto_estructura
+from noticias import analizar_noticias, obtener_titulares, sentimiento_combinado, texto_noticias
+from posicionamiento import obtener_posicionamiento, sesgo_multitud, texto_posicionamiento
+from expectativas import obtener_expectativas, sesgo_expectativas, texto_expectativas
+from semanal import texto_semanal
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
@@ -73,51 +79,95 @@ def velas_diarias_btc():
     return velas
 
 
-def fear_and_greed():
-    data = get_json("https://api.alternative.me/fng/?limit=1")
-    item = data["data"][0]
-    return int(item["value"]), item["value_classification"]
+def fear_and_greed(dias=7):
+    """Devuelve [(valor, texto)] de los últimos `dias`, del más viejo al más nuevo."""
+    data = get_json(f"https://api.alternative.me/fng/?limit={dias}")
+    return [(int(d["value"]), d["value_classification"]) for d in reversed(data["data"])]
 
 
-def enviar_telegram(texto):
+def _enviar_un_mensaje(texto):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = urllib.parse.urlencode({
         "chat_id": TELEGRAM_CHAT_ID,
         "text": texto,
         "parse_mode": "HTML",
+        "disable_web_page_preview": "true",
     }).encode("utf-8")
     req = urllib.request.Request(url, data=payload)
     with urllib.request.urlopen(req, timeout=30) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def main():
-    velas = velas_diarias_btc()
-    ultima = velas[-1]
-    anterior = velas[-2]
+def enviar_telegram(texto, limite=3900):
+    """Telegram acepta máximo 4096 caracteres: si es más largo, lo parte por bloques."""
+    bloques, actual = [], ""
+    for parte in texto.split("\n\n"):
+        if actual and len(actual) + len(parte) + 2 > limite:
+            bloques.append(actual)
+            actual = parte
+        else:
+            actual = f"{actual}\n\n{parte}" if actual else parte
+    bloques.append(actual)
+    respuesta = {}
+    for b in bloques:
+        respuesta = _enviar_un_mensaje(b[:4096])
+    return respuesta
 
+
+def reporte_diario(velas, est, fg_hist, pos, sesgo_pos):
+    ultima, anterior = velas[-1], velas[-2]
     fecha = datetime.fromtimestamp(int(ultima[0]), tz=timezone.utc).strftime("%d %b %Y")
-    cierre = float(ultima[4])
-    maximo = float(ultima[2])
-    minimo = float(ultima[3])
+    cierre, maximo, minimo = float(ultima[4]), float(ultima[2]), float(ultima[3])
     cambio = (cierre / float(anterior[4]) - 1) * 100
 
-    est = analizar_estructura(preparar_velas(velas))
-    fg_valor, fg_texto = fear_and_greed()
+    fg_valor, fg_texto = fg_hist[-1]
+    titulares, fallidas = obtener_titulares(horas=24)
+    noticias = analizar_noticias(titulares)
+    combinado = sentimiento_combinado(fg_valor, noticias["puntaje"])
+    exp = obtener_expectativas(cierre, titulares)
+    sesgo_exp = sesgo_expectativas(exp)
 
     flecha = "🟢" if cambio >= 0 else "🔴"
-    mensaje = (
+    return (
         f"<b>Como Estamos</b>\n"
         f"Vela del {fecha}\n\n"
         f"₿ Cierre: <b>${cierre:,.0f}</b> {flecha} {cambio:+.2f}%\n"
         f"Máximo: ${maximo:,.0f} | Mínimo: ${minimo:,.0f}\n\n"
         f"{texto_estructura(est)}\n\n"
-        f"😨 Fear & Greed: <b>{fg_valor}</b> ({fg_texto})\n\n"
+        f"{texto_noticias(noticias, combinado, fg_valor, fg_texto, fallidas)}\n\n"
+        f"{texto_posicionamiento(pos, sesgo_pos)}\n\n"
+        f"{texto_expectativas(exp, sesgo_exp)}\n\n"
         f"<i>Fuente: {FUENTE}</i>"
     )
 
-    respuesta = enviar_telegram(mensaje)
-    print("Telegram:", "OK" if respuesta.get("ok") else respuesta)
+
+def reporte_semanal(velas, est, fg_hist, pos):
+    titulares_sem, _ = obtener_titulares(horas=24 * 7)
+    noticias_sem = analizar_noticias(titulares_sem, n=5)
+    cierre = float(velas[-1][4])
+    exp = obtener_expectativas(cierre, titulares_sem)
+    return texto_semanal(velas, est, fg_hist, noticias_sem, pos,
+                         texto_expectativas(exp, sesgo_expectativas(exp)))
+
+
+def main():
+    # MODO: "diario", "semanal" o "auto" (auto = diario, y además semanal si cerró el domingo)
+    modo = (os.environ.get("MODO") or "auto").strip().lower()
+
+    velas = velas_diarias_btc()
+    est = analizar_estructura(preparar_velas(velas))
+    fg_hist = fear_and_greed(7)
+    pos = obtener_posicionamiento()
+    sesgo_pos = sesgo_multitud(pos)
+
+    domingo_cerrado = datetime.fromtimestamp(int(velas[-1][0]), tz=timezone.utc).weekday() == 6
+
+    if modo in ("auto", "diario"):
+        r = enviar_telegram(reporte_diario(velas, est, fg_hist, pos, sesgo_pos))
+        print("Diario:", "OK" if r.get("ok") else r)
+    if modo == "semanal" or (modo == "auto" and domingo_cerrado):
+        r = enviar_telegram(reporte_semanal(velas, est, fg_hist, pos))
+        print("Semanal:", "OK" if r.get("ok") else r)
 
 
 if __name__ == "__main__":
