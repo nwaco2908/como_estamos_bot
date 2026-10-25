@@ -24,7 +24,8 @@ def _esc(t):
     return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def texto_semanal(velas, est, fg_hist, noticias_sem, pos, exp_texto, escenarios_sem=None):
+def texto_semanal(velas, est, fg_hist, noticias_sem, pos, exp_texto, escenarios_sem=None,
+                  ciclo_texto="", macro_texto=""):
     semana = velas[-7:]
     apertura = float(semana[0][1])
     cierre = float(semana[-1][4])
@@ -50,10 +51,14 @@ def texto_semanal(velas, est, fg_hist, noticias_sem, pos, exp_texto, escenarios_
         recorrido.append(f"{DIAS[_f(v[0]).weekday()]} {'🟢' if c >= 0 else '🔴'}")
     lineas.append(" ".join(recorrido))
 
+    # Régimen de fondo (la marea)
+    if ciclo_texto:
+        lineas += ["", ciclo_texto]
+
     # Estructura
     desde = int(semana[0][0])
     eventos = [e for e in est["eventos"] if e["t"] >= desde]
-    lineas += ["", f"🧭 Estructura al cierre: <b>{est['tendencia'].capitalize()}</b>"]
+    lineas += ["", f"🧭 Estructura interna al cierre: <b>{est['tendencia'].capitalize()}</b>"]
     if eventos:
         for e in eventos:
             lineas.append(f"• {DIAS[_f(e['t']).weekday()]}: {e['tipo']} en ${e['nivel']:,.0f}")
@@ -91,6 +96,10 @@ def texto_semanal(velas, est, fg_hist, noticias_sem, pos, exp_texto, escenarios_
         if noticias_sem["mejores"]:
             lineas.append("\nTitulares positivos de la semana:")
             lineas += [f"🟢 {_esc(t['titulo'])}" for t in noticias_sem["mejores"]]
+
+    # Macro
+    if macro_texto:
+        lineas += ["", macro_texto]
 
     # Posicionamiento
     ls = (pos or {}).get("long_short")

@@ -1,7 +1,7 @@
 """
 Como Estamos - bot de sentimiento BTC
-Reporte diario: precio, estructura, sentimiento (noticias + Fear & Greed),
-posicionamiento (longs vs shorts) y expectativas de la gente.
+Reporte diario: precio, escenario, régimen de fondo, estructura, sentimiento (noticias + Fear & Greed),
+contexto macro, posicionamiento (longs vs shorts) y expectativas de la gente.
 Los domingos (cierre de semana) envía además el resumen semanal.
 """
 
@@ -18,6 +18,8 @@ from expectativas import obtener_expectativas, sesgo_expectativas, texto_expecta
 from semanal import texto_semanal
 from escenarios import evaluar, fecha_iso, texto_escenario
 import historial
+from ciclo import linea_ciclo, lectura_combinada, obtener_ciclo, texto_ciclo
+from macro import obtener_macro, texto_macro
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 # Uno o varios destinos separados por coma: tu chat personal, un canal (@nombre o -100...), un grupo
@@ -142,6 +144,18 @@ def reporte_diario(velas, est, fg_hist, pos, sesgo_pos, hist):
     previos = [d for d in hist if d.get("fecha") != fecha_iso(ultima)]
     esc = evaluar(velas, est, fg_hist, combinado, noticias["puntaje"], sesgo_pos, sesgo_exp, previos)
 
+    # Régimen de fondo (la marea) y contexto macro
+    ult_noticias = [d.get("noticias") for d in previos[-6:] if d.get("noticias") is not None]
+    if noticias["puntaje"] is not None:
+        ult_noticias.append(noticias["puntaje"])
+    noticias_prom = sum(ult_noticias) / len(ult_noticias) if ult_noticias else None
+    ciclo = obtener_ciclo(velas, noticias_prom)
+    try:
+        mac = obtener_macro(dias=1)
+    except Exception as e:
+        print("Macro no disponible:", e)
+        mac = None
+
     # Memoria: guardamos el día para los próximos análisis
     ls = (pos or {}).get("long_short") or {}
     fu = (pos or {}).get("funding") or {}
@@ -161,23 +175,27 @@ def reporte_diario(velas, est, fg_hist, pos, sesgo_pos, hist):
             "funding": fu.get("actual"),
             "sesgo_expectativas": sesgo_exp,
             "escenario": f"{esc['nivel']} {esc['titulo']}",
+            "regimen": ciclo["regimen"] if ciclo else None,
+            "fase_regimen": f"{ciclo['icono']} {ciclo['fase']}" if ciclo else None,
+            "macro": mac["puntaje"] if mac else None,
         })
     except Exception as e:
         print("No pude guardar el historial:", e)
 
     flecha = "🟢" if cambio >= 0 else "🔴"
-    return (
-        f"<b>Como Estamos</b>\n"
-        f"Vela del {fecha}\n\n"
-        f"₿ Cierre: <b>${cierre:,.0f}</b> {flecha} {cambio:+.2f}%\n"
-        f"Máximo: ${maximo:,.0f} | Mínimo: ${minimo:,.0f}\n\n"
-        f"{texto_escenario(esc)}\n\n"
-        f"{texto_estructura(est)}\n\n"
-        f"{texto_noticias(noticias, combinado, fg_valor, fg_texto, fallidas)}\n\n"
-        f"{texto_posicionamiento(pos, sesgo_pos)}\n\n"
-        f"{texto_expectativas(exp, sesgo_exp)}\n\n"
-        f"<i>Fuente: {FUENTE}</i>"
-    )
+    partes = [
+        f"<b>Como Estamos</b>\nVela del {fecha}",
+        f"₿ Cierre: <b>${cierre:,.0f}</b> {flecha} {cambio:+.2f}%\nMáximo: ${maximo:,.0f} | Mínimo: ${minimo:,.0f}",
+        texto_escenario(esc),
+    ]
+    if ciclo:
+        partes.append("\n".join(x for x in (linea_ciclo(ciclo), lectura_combinada(ciclo, est)) if x))
+    partes += [texto_estructura(est), texto_noticias(noticias, combinado, fg_valor, fg_texto, fallidas)]
+    if mac:
+        partes.append(texto_macro(mac))
+    partes += [texto_posicionamiento(pos, sesgo_pos), texto_expectativas(exp, sesgo_exp),
+               f"<i>Fuente: {FUENTE}</i>"]
+    return "\n\n".join(partes)
 
 
 def reporte_semanal(velas, est, fg_hist, pos):
@@ -188,8 +206,18 @@ def reporte_semanal(velas, est, fg_hist, pos):
     desde = fecha_iso(velas[-7])
     escenarios_sem = [(d["fecha"], d.get("escenario")) for d in historial.cargar()
                       if d.get("fecha", "") >= desde and d.get("escenario")]
+    hist = historial.cargar()
+    ult = [d.get("noticias") for d in hist if d.get("fecha", "") >= desde and d.get("noticias") is not None]
+    noticias_prom = sum(ult) / len(ult) if ult else noticias_sem["puntaje"]
+    ciclo = obtener_ciclo(velas, noticias_prom)
+    try:
+        mac_txt = texto_macro(obtener_macro(dias=7, n=4), semanal=True)
+    except Exception as e:
+        print("Macro semanal no disponible:", e)
+        mac_txt = ""
     return texto_semanal(velas, est, fg_hist[-7:], noticias_sem, pos,
-                         texto_expectativas(exp, sesgo_expectativas(exp)), escenarios_sem)
+                         texto_expectativas(exp, sesgo_expectativas(exp)), escenarios_sem,
+                         texto_ciclo(ciclo), mac_txt)
 
 
 def main():
