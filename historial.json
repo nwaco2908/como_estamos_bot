@@ -1,0 +1,22 @@
+[
+ {
+  "fecha": "2026-10-24",
+  "cierre": 80844.5,
+  "maximo": 81180.0,
+  "minimo": 79170.3,
+  "tendencia": "bajista",
+  "eventos": [
+   "Barrido de mínimo"
+  ],
+  "fear_greed": 54,
+  "noticias": -52,
+  "n_titulares": 88,
+  "narrativas": {},
+  "sentimiento": -22,
+  "sesgo_multitud": 20,
+  "ratio_long_short": 2.555,
+  "funding": 4.4e-05,
+  "sesgo_expectativas": -6,
+  "escenario": "🟡 VIGILANCIA — Barrido sin capitulación"
+ }
+]
