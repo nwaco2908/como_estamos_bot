@@ -2,9 +2,14 @@ name: Como Estamos
 
 on:
   schedule:
-    # 00:05 UTC = 7:05 p. m. hora Colombia (justo después del cierre diario).
+    # Varias horas por si GitHub se salta o retrasa alguna (pasa seguido cerca de las 00:00 UTC).
+    # Solo la primera que corra envía el reporte; las demás ven que ya se envió y no hacen nada.
+    # 00:13 UTC = 7:13 p. m. | 00:47 UTC = 7:47 p. m. | 01:37 UTC = 8:37 p. m. | 03:07 UTC = 10:07 p. m. (hora Colombia)
     # Los domingos también envía el resumen semanal.
-    - cron: "5 0 * * *"
+    - cron: "13 0 * * *"
+    - cron: "47 0 * * *"
+    - cron: "37 1 * * *"
+    - cron: "7 3 * * *"
   workflow_dispatch: # permite ejecutarlo manualmente para probar
     inputs:
       modo:
@@ -15,6 +20,11 @@ on:
           - diario
           - semanal
         default: auto
+
+# Evita que dos corridas se pisen
+concurrency:
+  group: como-estamos
+  cancel-in-progress: false
 
 # Permite que el bot guarde su memoria (historial.json) en el repositorio
 permissions:
@@ -37,6 +47,7 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           MODO: ${{ github.event.inputs.modo || 'auto' }}
+          EVENTO: ${{ github.event_name }}
         run: python bot.py
 
       - name: Guardar memoria del día
