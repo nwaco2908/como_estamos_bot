@@ -21,5 +21,28 @@
   "regimen": "rango",
   "fase_regimen": "⚪ Sin régimen claro",
   "macro": -51
+ },
+ {
+  "fecha": "2026-10-25",
+  "cierre": 80119.2,
+  "maximo": 80997.9,
+  "minimo": 79800.0,
+  "tendencia": "bajista",
+  "eventos": [],
+  "fear_greed": 50,
+  "noticias": -31,
+  "n_titulares": 89,
+  "narrativas": {
+   "fraud": 1
+  },
+  "sentimiento": -16,
+  "sesgo_multitud": 39,
+  "ratio_long_short": 2.351,
+  "funding": 6.708220175843333e-05,
+  "sesgo_expectativas": 29,
+  "escenario": "⚪ Bajista sin extremos",
+  "regimen": "rango",
+  "fase_regimen": "⚪ Sin régimen claro",
+  "macro": -46
  }
 ]
