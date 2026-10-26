@@ -153,14 +153,36 @@ OBJETIVO = re.compile(
 )
 
 
+# Solo cuentan titulares que PROYECTAN un precio (no los que informan dónde está o estuvo)
+PROYECCION = re.compile(
+    r"\b(could|can|will|would|may|might|set to|poised|on track|eyes|eyeing|targets?|forecasts?|"
+    r"predicts?|predictions?|projects?|expects?|sees|warns?|path to|road to|heading to|headed to|"
+    r"next stop|by (?:year[- ]end|end of|december|january|q[1-4]|20\d\d)|price targets?|bets? on)\b",
+    re.IGNORECASE,
+)
+# Titulares que solo reportan el movimiento del momento ("cae por debajo de $80K", "recupera $81.7K")
+REPORTE = re.compile(
+    r"\b(falls?|fell|drops?|dropped|slides?|slips?|sinks?|dips?|rises?|rose|climbs?|jumps?|"
+    r"recovers?|steadies|trades?|trading|hovers?|holds?|reclaims?|tops?|hits?|surges? past|"
+    r"breaks? (?:above|below)|consolidates?|retakes?)\b",
+    re.IGNORECASE,
+)
+
+
 def objetivos_titulares(titulares, precio):
     arriba, abajo = [], []
     for t in titulares:
-        for m in OBJETIVO.finditer(t["titulo"]):
+        titulo = t["titulo"]
+        if not PROYECCION.search(titulo):
+            continue  # no proyecta nada: es un reporte de precio
+        if REPORTE.search(titulo) and not re.search(r"\b(could|will|may|might|warns?|predicts?|forecasts?|targets?)\b",
+                                                   titulo, re.IGNORECASE):
+            continue
+        for m in OBJETIVO.finditer(titulo):
             nivel = _monto(m.group(2))
             if not nivel or not (precio * 0.4 < nivel < precio * 2.5):
                 continue
-            if abs(nivel / precio - 1) < 0.01:  # el precio actual no es un objetivo
+            if abs(nivel / precio - 1) < 0.03:  # niveles casi iguales al precio actual no son objetivos
                 continue
             (arriba if nivel > precio else abajo).append(nivel)
     return {"arriba": sorted(arriba), "abajo": sorted(abajo, reverse=True)}

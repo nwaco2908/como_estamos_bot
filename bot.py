@@ -69,18 +69,68 @@ def velas_kraken():
     return [v[:5] for v in resultado[clave]]
 
 
+MIN_VELAS = 400  # el régimen de fondo (swing 25) necesita bastante historia
+
+
+def _historial_bitget(velas, objetivo=MIN_VELAS):
+    """Bitget entrega pocas velas por consulta: pide páginas hacia atrás hasta tener suficientes."""
+    base = ("https://api.bitget.com/api/v2/mix/market/history-candles"
+            "?symbol=BTCUSDT&productType=usdt-futures&limit=200&granularity=")
+    for gran in ("1Dutc", "1D"):
+        extra, intentos = [], 0
+        mas_vieja = velas[0][0]
+        while len(velas) + len(extra) < objetivo and intentos < 5:
+            intentos += 1
+            try:
+                data = get_json(f"{base}{gran}&endTime={(mas_vieja - 1) * 1000}")
+            except Exception as e:
+                print("Historia Bitget no disponible:", e)
+                break
+            if data.get("code") != "00000" or not data.get("data"):
+                break
+            pagina = sorted(([int(v[0]) // 1000, v[1], v[2], v[3], v[4]] for v in data["data"]),
+                            key=lambda v: v[0])
+            pagina = [v for v in pagina if v[0] < mas_vieja]
+            if not pagina:
+                break
+            extra = pagina + extra
+            mas_vieja = pagina[0][0]
+        if extra:
+            return extra + velas
+    return velas
+
+
+def _completar_con_kraken(velas):
+    """Si aún faltan velas, completa la historia más vieja con Kraken (solo para el régimen de fondo)."""
+    try:
+        kr = velas_kraken()
+    except Exception as e:
+        print("Kraken no disponible para completar historia:", e)
+        return velas
+    primera = velas[0][0]
+    viejas = [v for v in kr if int(v[0]) < primera]
+    return viejas + velas
+
+
 def velas_diarias_btc():
-    """Intenta Bitget primero; si falla, usa Kraken. Devuelve solo velas cerradas."""
+    """Bitget primero (con historia extendida); si falla, Kraken. Devuelve solo velas cerradas."""
     global FUENTE
     try:
-        velas = solo_cerradas(velas_bitget())
+        velas = velas_bitget()
         if len(velas) < 50:
             raise RuntimeError("Bitget devolvió muy pocas velas")
         FUENTE = "Bitget BTCUSDT perpetuo"
+        if len(velas) < MIN_VELAS:
+            velas = _historial_bitget(velas)
+        if len(velas) < MIN_VELAS:
+            velas = _completar_con_kraken(velas)
+            FUENTE = "Bitget BTCUSDT perpetuo (historia antigua: Kraken)"
     except Exception as e:
         print("Bitget no disponible, uso Kraken:", e)
-        velas = solo_cerradas(velas_kraken())
+        velas = velas_kraken()
         FUENTE = "Kraken BTC/USD (respaldo)"
+    velas = solo_cerradas(velas)
+    print(f"Velas diarias cargadas: {len(velas)} ({FUENTE})")
     return velas
 
 

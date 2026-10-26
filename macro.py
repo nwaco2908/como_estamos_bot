@@ -47,6 +47,12 @@ RISK_ON = {
     "stimulus": 1, "strong jobs": 1, "beats": 1, "oil falls": 1, "oil drops": 1, "de-escalat": 2,
 }
 EXCLUIR = re.compile(r"\b(bitcoin|btc|crypto|ethereum)\b", re.IGNORECASE)  # eso ya lo cubre noticias.py
+# Titulares de opinión / clickbait que no informan nada concreto del mercado
+CLICKBAIT = re.compile(
+    r"^(prediction|opinion|my take)\b|here'?s (what|why|how)|should you|stocks? to buy|buy (now|right now)|"
+    r"millionaire|retire|best stocks|warren buffett|motley fool|could make you|\?$",
+    re.IGNORECASE,
+)
 
 
 def _pat(d):
@@ -109,7 +115,7 @@ def titulares_macro(dias=1):
                 fecha = parsedate_to_datetime(item.findtext("pubDate") or "")
             except Exception:
                 fecha = None
-            if not titulo or EXCLUIR.search(titulo) or (fecha and fecha < limite):
+            if not titulo or EXCLUIR.search(titulo) or CLICKBAIT.search(titulo) or (fecha and fecha < limite):
                 continue
             limpio = re.sub(r"\s+-\s+[^-]{2,40}$", "", titulo)
             clave = re.sub(r"\W+", " ", limpio.lower()).strip()
@@ -124,7 +130,7 @@ def _puntuar(titulo):
     return sum(w for p, w in P_ON if p.search(titulo)) - sum(w for p, w in P_OFF if p.search(titulo))
 
 
-def analizar_macro(precios, titulares, n=3):
+def analizar_macro(precios, titulares, n=3, clave="dia"):
     # Componente de titulares
     puntuados = sorted(((_puntuar(t), t) for t in titulares), key=lambda x: x[0])
     neg = sum(-p for p, _ in puntuados if p < 0)
@@ -137,18 +143,25 @@ def analizar_macro(precios, titulares, n=3):
         partes = []
         for nombre, peso in (("Nasdaq", 25), ("S&P 500", 25)):
             if nombre in precios:
-                partes.append(precios[nombre]["dia"] * peso)       # bolsa sube = risk-on
+                partes.append(precios[nombre][clave] * peso)       # bolsa sube = risk-on
         if "VIX" in precios:
-            partes.append(-precios["VIX"]["dia"] * 3)              # VIX sube = miedo
+            partes.append(-precios["VIX"][clave] * 3)              # VIX sube = miedo
+            if precios["VIX"]["ultimo"] >= 25:
+                partes.append(-40)                                 # VIX alto = miedo real en bolsa
         if "Dólar" in precios:
-            partes.append(-precios["Dólar"]["dia"] * 40)           # dólar fuerte = malo para BTC
-        if "Petróleo" in precios and precios["Petróleo"]["dia"] > 2:
-            partes.append(-(precios["Petróleo"]["dia"] - 2) * 10)  # petróleo disparado = tensión
+            partes.append(-precios["Dólar"][clave] * 40)           # dólar fuerte = malo para BTC
+        if "Petróleo" in precios and precios["Petróleo"][clave] > 2:
+            partes.append(-(precios["Petróleo"][clave] - 2) * 10)  # petróleo disparado = tensión
         if partes:
             p_mer = max(-100, min(100, sum(partes) / len(partes) * 2))
 
-    comps = [x for x in (p_tit, p_mer) if x is not None]
-    puntaje = round(sum(comps) / len(comps)) if comps else None
+    # Los precios son hechos; los titulares, opiniones: los mercados pesan más
+    if p_tit is not None and p_mer is not None:
+        puntaje = round(0.6 * p_mer + 0.4 * p_tit)
+    elif p_mer is not None or p_tit is not None:
+        puntaje = round(p_mer if p_mer is not None else p_tit)
+    else:
+        puntaje = None
     return {
         "puntaje": puntaje, "titulares_puntaje": p_tit, "mercados_puntaje": p_mer,
         "negativos": [t for p, t in puntuados if p < 0][:n],
@@ -160,7 +173,10 @@ def analizar_macro(precios, titulares, n=3):
 def obtener_macro(dias=1, n=3):
     precios, fallos = precios_macro()
     titulares = titulares_macro(dias)
-    a = analizar_macro(precios, titulares, n)
+    clave = "semana" if dias >= 5 else "dia"
+    if clave == "semana" and any(v.get("semana") is None for v in precios.values()):
+        clave = "dia"
+    a = analizar_macro(precios, titulares, n, clave)
     a["precios"], a["fallos"] = precios, fallos
     return a
 
