@@ -224,10 +224,22 @@ def main():
     # MODO: "diario", "semanal" o "auto" (auto = diario, y además semanal si cerró el domingo)
     modo = (os.environ.get("MODO") or "auto").strip().lower()
 
+    evento = (os.environ.get("EVENTO") or "").strip()
+
     velas = velas_diarias_btc()
+    hist = historial.cargar()
+
+    # Hay varias horas programadas por si GitHub se salta una. Si una corrida PROGRAMADA encuentra
+    # que la vela de hoy ya fue reportada, no envía nada (evita mensajes repetidos).
+    # Las corridas manuales siempre envían.
+    if evento == "schedule" and modo == "auto":
+        hoy = fecha_iso(velas[-1])
+        if any(d.get("fecha") == hoy for d in hist):
+            print(f"La vela del {hoy} ya fue reportada; esta corrida de respaldo no envía nada.")
+            return
+
     est = analizar_estructura(preparar_velas(velas))
     fg_hist = fear_and_greed(10)
-    hist = historial.cargar()
     pos = obtener_posicionamiento()
     sesgo_pos = sesgo_multitud(pos)
 
