@@ -46,7 +46,7 @@ RISK_ON = {
     "rally": 1, "record high": 2, "all-time high": 2, "surge": 1, "gains": 1, "rebound": 1,
     "stimulus": 1, "strong jobs": 1, "beats": 1, "oil falls": 1, "oil drops": 1, "de-escalat": 2,
 }
-EXCLUIR = re.compile(r"\b(bitcoin|btc|crypto|ethereum)\b", re.IGNORECASE)  # eso ya lo cubre noticias.py
+EXCLUIR = re.compile(r"\b(bitcoin|btc|crypto|ethereum|gold|silver)\b", re.IGNORECASE)  # cripto ya lo cubre noticias.py; oro y plata no interesan
 # Titulares de opinión / clickbait que no informan nada concreto del mercado
 CLICKBAIT = re.compile(
     r"^(prediction|opinion|my take)\b|here'?s (what|why|how)|should you|stocks? to buy|buy (now|right now)|"
@@ -115,9 +115,11 @@ def titulares_macro(dias=1):
                 fecha = parsedate_to_datetime(item.findtext("pubDate") or "")
             except Exception:
                 fecha = None
-            if not titulo or EXCLUIR.search(titulo) or CLICKBAIT.search(titulo) or (fecha and fecha < limite):
+            if not titulo or (fecha and fecha < limite):
                 continue
-            limpio = re.sub(r"\s+-\s+[^-]{2,40}$", "", titulo)
+            limpio = re.sub(r"\s+-\s+[^-]{2,40}$", "", titulo)  # quita " - Medio" del final
+            if EXCLUIR.search(limpio) or CLICKBAIT.search(limpio):
+                continue
             clave = re.sub(r"\W+", " ", limpio.lower()).strip()
             if clave in vistos:
                 continue
