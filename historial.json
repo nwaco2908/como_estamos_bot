@@ -115,5 +115,28 @@
   "regimen": "alcista",
   "fase_regimen": "⚪ Retroceso sin miedo",
   "macro": -26
+ },
+ {
+  "fecha": "2026-10-29",
+  "cierre": 77969.5,
+  "maximo": 81934.4,
+  "minimo": 77888.0,
+  "tendencia": "bajista",
+  "eventos": [
+   "BOS bajista"
+  ],
+  "fear_greed": 30,
+  "noticias": -38,
+  "n_titulares": 120,
+  "narrativas": {},
+  "sentimiento": -39,
+  "sesgo_multitud": 42,
+  "ratio_long_short": 2.61,
+  "funding": 3.2779733333333334e-05,
+  "sesgo_expectativas": 63,
+  "escenario": "⚪ Continuación bajista",
+  "regimen": "alcista",
+  "fase_regimen": "⚪ Retroceso sin miedo",
+  "macro": -44
  }
 ]
