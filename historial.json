@@ -189,5 +189,28 @@
   "regimen": "alcista",
   "fase_regimen": "🟡 Retroceso con miedo",
   "macro": -69
+ },
+ {
+  "fecha": "2026-11-01",
+  "cierre": 78300.0,
+  "maximo": 78383.4,
+  "minimo": 77463.7,
+  "tendencia": "bajista",
+  "eventos": [],
+  "fear_greed": 37,
+  "noticias": -47,
+  "n_titulares": 93,
+  "narrativas": {
+   "record high": 1
+  },
+  "sentimiento": -36,
+  "sesgo_multitud": 48,
+  "ratio_long_short": 2.37,
+  "funding": 8.7e-05,
+  "sesgo_expectativas": 13,
+  "escenario": "🟡 VIGILANCIA — Barrido sin capitulación",
+  "regimen": "alcista",
+  "fase_regimen": "🟡 Retroceso con miedo",
+  "macro": -82
  }
 ]
