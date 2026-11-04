@@ -212,5 +212,30 @@
   "regimen": "alcista",
   "fase_regimen": "🟡 Retroceso con miedo",
   "macro": -82
+ },
+ {
+  "fecha": "2026-11-03",
+  "cierre": 77429.0,
+  "maximo": 78029.1,
+  "minimo": 76372.4,
+  "tendencia": "bajista",
+  "eventos": [],
+  "fear_greed": 34,
+  "noticias": -55,
+  "n_titulares": 112,
+  "narrativas": {
+   "capitulat": 1,
+   "bubble burst": 1,
+   "panic": 1
+  },
+  "sentimiento": -44,
+  "sesgo_multitud": 22,
+  "ratio_long_short": 2.623,
+  "funding": 9.933333333333333e-05,
+  "sesgo_expectativas": 21,
+  "escenario": "🟡 VIGILANCIA — Barrido sin capitulación",
+  "regimen": "alcista",
+  "fase_regimen": "🟠 Retroceso absorbido",
+  "macro": -9
  }
 ]
