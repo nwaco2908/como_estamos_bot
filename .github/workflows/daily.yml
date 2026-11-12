@@ -62,3 +62,15 @@ jobs:
               git push
             fi
           fi
+
+      # Si algo falla, te avisa a tu chat personal en vez de quedarse callado
+      - name: Avisar si la corrida falló
+        if: failure()
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          DESTINO="${TELEGRAM_CHAT_ID%%,*}"
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${DESTINO}" \
+            --data-urlencode "text=⚠️ Como Estamos: una corrida falló. Si no te llega el reporte de hoy, revisa la pestaña Actions del repositorio." > /dev/null
