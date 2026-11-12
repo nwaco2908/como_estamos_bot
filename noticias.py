@@ -2,11 +2,18 @@
 Como Estamos - Módulo de noticias y sentimiento (Fase 4)
 
 1) Descarga titulares de las últimas 24 h desde fuentes RSS gratuitas.
-2) Se queda solo con los que hablan de Bitcoin / cripto.
-3) Puntúa cada titular con un diccionario de palabras:
+   Si Google News no responde, usa fuentes de respaldo para no quedarse sin noticias.
+2) Se queda solo con los que hablan de Bitcoin / cripto y quita la misma noticia repetida
+   (aunque venga redactada distinto por otro medio).
+3) Puntúa cada titular con un diccionario de palabras Y reglas de contexto:
    - palabras negativas / positivas normales: peso 1
    - NARRATIVAS EXTREMAS (Ponzi, colapso, "bitcoin ha muerto", euforia...): peso 2
+   - "borra el rally" es negativo aunque diga "rally"; "recupera las pérdidas" es positivo
+   - un impuesto a las "ganancias" no es una buena noticia
+   - "desde su máximo histórico" o una pregunta ("¿llegará a máximos?") no son euforia
+   - "aguanta $75K pese al miedo" es RESILIENCIA: no cuenta como negativo y se reporta aparte
 4) Combina noticias + Fear & Greed en una puntuación de -100 (pánico) a +100 (euforia).
+   Si hay muy pocos titulares, las noticias NO cuentan ese día (se avisa en el reporte).
 """
 
 import re
@@ -22,6 +29,13 @@ FUENTES_RSS = {
     "Decrypt": "https://decrypt.co/feed",
     "Bitcoin Magazine": "https://bitcoinmagazine.com/.rss/full/",
 }
+# Solo se consultan si Google News (la fuente con más titulares) no responde
+RESPALDO_RSS = {
+    "Bing News": "https://www.bing.com/news/search?q=bitcoin&format=rss",
+    "CryptoSlate": "https://cryptoslate.com/feed/",
+    "Bitcoin.com": "https://news.bitcoin.com/feed/",
+}
+MIN_TITULARES = 8  # con menos titulares que esto, el puntaje de noticias no es fiable
 
 # Solo titulares que hablen de esto
 FILTRO_BTC = re.compile(
@@ -36,6 +50,7 @@ NEGATIVAS = {
     "bear": 1, "fear": 1, "liquidat": 1, "outflow": 1, "warn": 1, "risk": 1,
     "hack": 1, "exploit": 1, "ban": 1, "lawsuit": 1, "sues": 1, "probe": 1, "selling": 1,
     "loss": 1, "losses": 1, "weak": 1, "pressure": 1, "doubt": 1, "breakdown": 1,
+    "crater": 1, "rout": 1, "downside": 1, "stolen": 1, "breach": 1,
     # narrativas extremas
     "ponzi": 2, "collapse": 2, "bankrupt": 2, "insolven": 2, "capitulat": 2, "panic": 2,
     "bloodbath": 2, "wipe": 2, "implode": 2, "fraud": 2, "death spiral": 2, "is dead": 2,
@@ -55,6 +70,41 @@ POSITIVAS = {
     "extreme greed": 2, "record high": 2,
 }
 
+# ── Reglas de contexto ──
+_HASTA_3 = r"(?:\W+[\w$%.,'-]+){0,3}?\W+"
+# "Erases election rally", "gives up gains": lo positivo quedó anulado → negativo
+ANULA_POS = re.compile(
+    r"\b(erases?|erased|wipes? out|wiped out|gives? up|gave up|loses?|lost|ends?|ended|fades?|faded|fading|"
+    r"stalls?|stalled|fails?|failed|reverses?|reversed|snaps?|snapped|pares?|trims?|unwinds?|fizzles?)"
+    + _HASTA_3 + r"(rally|rallies|gains?|rebound|recovery|surge|advance|bounce)\b", re.IGNORECASE)
+# "Erases losses", "recovers from sell-off": lo negativo quedó anulado → positivo
+ANULA_NEG = re.compile(
+    r"\b(erases?|erased|recovers?|recovered|recoups?|recouped|pares?|pared|trims?|trimmed|reverses?|reversed)"
+    + _HASTA_3 + r"(loss(?:es)?|declines?|drops?|slide|sell-?off|slump)\b", re.IGNORECASE)
+# El precio aguanta pese a las malas noticias
+RESILIENCIA = re.compile(
+    r"\b(holds?|holding|steadies|steady|stabili[sz]es?|resilien\w*|shrugs? off|defies|defying|unfazed|"
+    r"ignores?|weathers?|withstands?|stays? above|remains? above|refuses to)\b", re.IGNORECASE)
+IMPUESTO = re.compile(r"\b(tax|taxes|taxation|levy|levies)\b", re.IGNORECASE)
+# Preguntas y predicciones: especulan, no describen lo que pasa
+ESPECULATIVO = re.compile(r"\?\s*$|^\W*(prediction|opinion|could|will|can|what if|is it)\b", re.IGNORECASE)
+# "Since its $126,000 record high": habla del pasado, no es euforia
+RETROSPECTIVO = re.compile(
+    r"\b(since|from|below|off|under|shy of|after|away from)\b[^;:]{0,40}\b(record|all[- ]time high|ath)\b",
+    re.IGNORECASE)
+# "Record outflows", "record liquidations": récord de algo malo
+RECORD_NEGATIVO = re.compile(
+    r"\brecord\W+(?:\w+\W+)?(outflows?|liquidations?|loss(?:es)?|lows?|sell|selling|drop|decline)", re.IGNORECASE)
+_PALABRAS_RECORD = {"record", "record high", "all-time high", "all time high", "new ath"}
+_PALABRAS_GANANCIA = {"gain", "approve", "approval"}
+
+# Palabras que no ayudan a distinguir una noticia de otra
+_GENERICAS = {
+    "bitcoin", "btc", "crypto", "cryptocurrency", "cryptocurrencies", "price", "prices", "market",
+    "markets", "today", "the", "and", "for", "with", "from", "that", "this", "after", "amid", "over",
+    "into", "its", "are", "was", "has", "have", "will", "what", "why", "how", "new", "says", "say",
+}
+
 
 def _patrones(diccionario):
     return [(re.compile(r"\b" + re.escape(p), re.IGNORECASE), p, w) for p, w in diccionario.items()]
@@ -64,10 +114,16 @@ PAT_NEG = _patrones(NEGATIVAS)
 PAT_POS = _patrones(POSITIVAS)
 
 
-def _descargar(url):
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (como-estamos-bot)"})
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        return resp.read()
+def _descargar(url, intentos=1):
+    ultimo = None
+    for _ in range(intentos):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (como-estamos-bot)"})
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                return resp.read()
+        except Exception as e:
+            ultimo = e
+    raise ultimo
 
 
 def _fecha(texto):
@@ -78,19 +134,32 @@ def _fecha(texto):
         return None
 
 
-def obtener_titulares(horas=24):
-    """Devuelve [{'titulo', 'fuente', 'fecha'}] de las últimas `horas`, sin duplicados."""
-    limite = datetime.now(timezone.utc) - timedelta(hours=horas)
-    titulares, vistos, fallidas = [], set(), []
+def _palabras_clave(titulo):
+    """Palabras (y números) que identifican la noticia, sin las genéricas."""
+    return {w for w in re.findall(r"[a-z]{3,}|\d+", titulo.lower()) if w not in _GENERICAS}
 
+
+def _misma_noticia(a, b):
+    """La misma noticia redactada distinto: comparten la mayoría de sus palabras clave."""
+    menor = min(len(a), len(b))
+    if menor < 4:
+        return a == b
+    return len(a & b) / menor >= 0.6
+
+
+def obtener_titulares(horas=24):
+    """Devuelve ([{'titulo', 'fuente', 'fecha'}], fuentes_sin_respuesta) de las últimas `horas`,
+    sin noticias repetidas."""
+    limite = datetime.now(timezone.utc) - timedelta(hours=horas)
+    titulares, claves, fallidas = [], [], []
     dias = max(1, round(horas / 24))
-    for nombre, url in FUENTES_RSS.items():
+
+    def leer(nombre, url, intentos=1):
         try:
-            raiz = ET.fromstring(_descargar(url.replace("{dias}", str(dias))))
+            raiz = ET.fromstring(_descargar(url.replace("{dias}", str(dias)), intentos))
         except Exception as e:
-            fallidas.append(nombre)
             print(f"RSS {nombre} no disponible: {e}")
-            continue
+            return False
         for item in raiz.iter("item"):
             titulo = (item.findtext("title") or "").strip()
             fecha = _fecha(item.findtext("pubDate") or "")
@@ -100,46 +169,96 @@ def obtener_titulares(horas=24):
                 continue
             # Algunos agregadores ponen " - Medio" al final; lo quitamos para detectar duplicados
             limpio = re.sub(r"\s+-\s+[^-]{2,40}$", "", titulo)
-            clave = re.sub(r"\W+", " ", limpio.lower()).strip()
-            if clave in vistos:
+            clave = _palabras_clave(limpio)
+            if any(_misma_noticia(clave, c) for c in claves):
                 continue
-            vistos.add(clave)
+            claves.append(clave)
             titulares.append({"titulo": limpio, "fuente": nombre, "fecha": fecha})
+        return True
+
+    for nombre, url in FUENTES_RSS.items():
+        if not leer(nombre, url, intentos=2 if nombre == "Google News" else 1):
+            fallidas.append(nombre)
+
+    if "Google News" in fallidas:
+        usados = [nombre for nombre, url in RESPALDO_RSS.items() if leer(nombre, url)]
+        i = fallidas.index("Google News")
+        fallidas[i] = ("Google News (usé de respaldo: " + ", ".join(usados) + ")") if usados \
+            else "Google News (y los respaldos tampoco)"
 
     return titulares, fallidas
 
 
-def puntuar_titular(titulo):
-    """Devuelve (puntaje, palabras_extremas). Negativo = bajista, positivo = alcista."""
-    neg, pos, extremas = 0, 0, []
+def _puntuar(titulo):
+    """Puntúa un titular con el diccionario y las reglas de contexto."""
+    t = titulo
+    neg = pos = 0
+    extremas = []
+    especulativo = bool(ESPECULATIVO.search(t))
+
+    m = ANULA_POS.search(t)
+    if m:  # "erases rally": negativo, y ese "rally" ya no cuenta como positivo
+        neg += 1
+        t = t.replace(m.group(0), " ")
+    m = ANULA_NEG.search(t)
+    if m:  # "erases losses": positivo, y esas "losses" ya no cuentan como negativo
+        pos += 1
+        t = t.replace(m.group(0), " ")
+
+    impuesto = bool(IMPUESTO.search(t))
+    retro = bool(RETROSPECTIVO.search(t))
+    record_malo = bool(RECORD_NEGATIVO.search(t))
+
     for pat, palabra, peso in PAT_NEG:
-        if pat.search(titulo):
+        if pat.search(t):
             neg += peso
             if peso == 2:
                 extremas.append(palabra)
     for pat, palabra, peso in PAT_POS:
-        if pat.search(titulo):
-            pos += peso
-            if peso == 2:
-                extremas.append(palabra)
-    return pos - neg, extremas
+        if not pat.search(t):
+            continue
+        if impuesto and palabra in _PALABRAS_GANANCIA:
+            continue  # "tax on crypto gains" no es una ganancia
+        if palabra in _PALABRAS_RECORD and (retro or especulativo or record_malo):
+            continue  # máximos del pasado, preguntas o récords de algo malo
+        if peso == 2 and especulativo:
+            continue  # una pregunta no es euforia
+        pos += peso
+        if peso == 2:
+            extremas.append(palabra)
+
+    resiliencia = bool(RESILIENCIA.search(t)) and neg > 0
+    if resiliencia:
+        neg = 0  # hay malas noticias pero el precio aguanta: no es un titular bajista
+        extremas = [e for e in extremas if e in POSITIVAS]
+    return {"puntaje": pos - neg, "extremas": extremas, "resiliencia": resiliencia}
+
+
+def puntuar_titular(titulo):
+    """Devuelve (puntaje, palabras_extremas). Negativo = bajista, positivo = alcista."""
+    r = _puntuar(titulo)
+    return r["puntaje"], r["extremas"]
 
 
 def analizar_noticias(titulares, n=3):
     """
     Puntuación de noticias de -100 a +100 y narrativas extremas detectadas.
+    "fiable" indica si hay suficientes titulares para confiar en el puntaje.
     """
     if not titulares:
-        return {"puntaje": None, "total": 0, "neg": 0, "pos": 0, "neutras": 0,
-                "narrativas": {}, "peores": [], "mejores": []}
+        return {"puntaje": None, "total": 0, "neg": 0, "pos": 0, "neutras": 0, "fiable": False,
+                "narrativas": {}, "peores": [], "mejores": [], "resiliencia": []}
 
     suma_neg, suma_pos = 0, 0
     neg = pos = neutras = 0
     narrativas = {}
-    puntuados = []
+    puntuados, resiliencia = [], []
     for t in titulares:
-        p, extremas = puntuar_titular(t["titulo"])
+        r = _puntuar(t["titulo"])
+        p = r["puntaje"]
         puntuados.append((p, t))
+        if r["resiliencia"]:
+            resiliencia.append(t)
         if p < 0:
             neg += 1
             suma_neg += -p
@@ -148,7 +267,7 @@ def analizar_noticias(titulares, n=3):
             suma_pos += p
         else:
             neutras += 1
-        for e in extremas:
+        for e in r["extremas"]:
             narrativas[e] = narrativas.get(e, 0) + 1
 
     # Balance entre lo positivo y lo negativo, suavizado si hay pocos titulares con tono
@@ -160,13 +279,19 @@ def analizar_noticias(titulares, n=3):
     mejores = [t for p, t in reversed(puntuados) if p > 0][:n]
 
     return {"puntaje": round(puntaje), "total": len(titulares), "neg": neg, "pos": pos,
-            "neutras": neutras, "narrativas": narrativas, "peores": peores, "mejores": mejores}
+            "neutras": neutras, "fiable": len(titulares) >= MIN_TITULARES,
+            "narrativas": narrativas, "peores": peores, "mejores": mejores, "resiliencia": resiliencia}
+
+
+def puntaje_fiable(analisis):
+    """El puntaje de noticias, o None si hay tan pocos titulares que no conviene usarlo."""
+    return analisis["puntaje"] if analisis.get("fiable") else None
 
 
 def sentimiento_combinado(fg_valor, puntaje_noticias):
     """
     Fear & Greed (0-100) llevado a -100..+100, promediado con las noticias.
-    Si no hay noticias, se usa solo el Fear & Greed.
+    Si no hay noticias (o no son fiables), se usa solo el Fear & Greed.
     """
     fg = fg_valor * 2 - 100
     if puntaje_noticias is None:
@@ -195,15 +320,21 @@ def texto_noticias(analisis, combinado, fg_valor, fg_texto, fallidas):
     lineas.append(f"Fear &amp; Greed: {fg_valor} ({fg_texto})")
 
     if analisis["total"] == 0:
-        lineas.append("📰 Noticias: sin titulares disponibles hoy")
+        lineas.append("📰 Noticias: sin titulares disponibles hoy (el sentimiento usa solo Fear &amp; Greed)")
     else:
         lineas.append(
             f"📰 Noticias 24 h: {analisis['puntaje']:+d} "
             f"({analisis['neg']} 🔴 / {analisis['pos']} 🟢 / {analisis['neutras']} ⚪ de {analisis['total']})"
         )
+        if not analisis["fiable"]:
+            lineas.append(f"⚠️ Muy pocos titulares (menos de {MIN_TITULARES}): hoy las noticias NO cuentan "
+                          "para el sentimiento, que usa solo Fear &amp; Greed.")
         if analisis["narrativas"]:
             top = sorted(analisis["narrativas"].items(), key=lambda x: -x[1])[:4]
             lineas.append("⚠️ Narrativas extremas: " + ", ".join(f"{k} ×{v}" for k, v in top))
+        if analisis["resiliencia"]:
+            lineas.append(f"💪 Resiliencia: {len(analisis['resiliencia'])} titular(es) dicen que el precio "
+                          "aguanta pese a las malas noticias")
         if analisis["peores"]:
             lineas.append("\nTitulares más negativos:")
             lineas += [f"🔴 {_escapar(t['titulo'])}" for t in analisis["peores"]]

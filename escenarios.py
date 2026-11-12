@@ -49,6 +49,50 @@ def _serie_sentimiento(velas, fg_hist, historial, sent_hoy):
     return [round(x) for x in serie]
 
 
+def absorcion(velas, sent_hoy, noticias_hoy):
+    """
+    El corazón de la tesis: ¿cómo reaccionó HOY el precio frente a las noticias?
+    +100 = les llevó la contraria (absorbió las malas / rechazó las buenas)
+    -100 = las siguió.
+    Mira tres cosas de la vela: en qué parte de su rango cerró, cuánto cambió en el día
+    y si marcó un nuevo extremo de cierre de los últimos días. Devuelve None en días sin
+    noticias claramente malas o buenas.
+    """
+    if len(velas) < VENTANA + 2:
+        return None
+    hoy, ayer = velas[-1], velas[-2]
+    h, l, c = float(hoy[2]), float(hoy[3]), float(hoy[4])
+    malas = sent_hoy <= NEG or (noticias_hoy is not None and noticias_hoy <= -40)
+    buenas = sent_hoy >= POS or (noticias_hoy is not None and noticias_hoy >= 40)
+    if not (malas or buenas):
+        return None
+    pos = (c - l) / (h - l) if h > l else 0.5
+    cambio = (c / float(ayer[4]) - 1) * 100
+    previas = [float(v[4]) for v in velas[-1 - VENTANA:-1]]
+    signo = 1 if malas else -1
+    extremo = c < min(previas) if malas else c > max(previas)
+    puntaje = signo * (pos - 0.5) * 100 + max(-30, min(30, signo * cambio * 15)) + (-20 if extremo else 20)
+    return {"puntaje": max(-100, min(100, round(puntaje))), "tipo": "malas" if malas else "buenas",
+            "pos_rango": pos, "cambio": cambio, "extremo": extremo}
+
+
+def texto_absorcion(a):
+    if not a:
+        return ""
+    p = a["puntaje"]
+    if a["tipo"] == "malas":
+        lectura = ("el precio <b>absorbió</b> las malas noticias" if p >= 30 else
+                   "el precio <b>siguió</b> a las malas noticias" if p <= -30 else "reacción mixta a las malas noticias")
+        extremo = "nuevo mínimo de cierre" if a["extremo"] else "sin nuevo mínimo de cierre"
+    else:
+        lectura = ("el precio <b>no reaccionó</b> a las buenas noticias" if p >= 30 else
+                   "el precio <b>siguió</b> a las buenas noticias" if p <= -30 else "reacción mixta a las buenas noticias")
+        extremo = "nuevo máximo de cierre" if a["extremo"] else "sin nuevo máximo de cierre"
+    zona = "parte alta" if a["pos_rango"] >= 0.66 else "parte baja" if a["pos_rango"] <= 0.33 else "mitad"
+    return (f"🥊 Precio vs. noticias: <b>{p:+d}</b> → {lectura} "
+            f"(cerró en la {zona} del rango del día, {a['cambio']:+.1f}%, {extremo})")
+
+
 def evaluar(velas, est, fg_hist, sent_hoy, noticias_hoy, sesgo_pos, sesgo_exp, historial):
     """
     velas: velas cerradas [t, o, h, l, c]
@@ -135,8 +179,12 @@ def evaluar(velas, est, fg_hist, sent_hoy, noticias_hoy, sesgo_pos, sesgo_exp, h
                 nivel, titulo = "🟠", "PREPARACIÓN — Posible suelo"
                 lectura = "Noticias negativas y el precio ya no cae. Esperar CHoCH alcista para confirmar."
             elif dejo_de_caer and multitud_long:
-                nivel, titulo = "🟡", "VIGILANCIA — Barrido sin capitulación"
-                lectura = ("El precio dejó de caer, pero la gente sigue en long: no hay pánico real todavía. "
+                # "Barrido" solo si la estructura marcó un barrido de mínimo (misma regla en todo el reporte)
+                nivel = "🟡"
+                titulo = ("VIGILANCIA — Barrido sin capitulación" if barrido_min
+                          else "VIGILANCIA — Pausa sin capitulación")
+                lectura = (("El precio barrió un mínimo y recuperó" if barrido_min else "El precio dejó de caer")
+                           + ", pero la gente sigue en long: no hay pánico real todavía. "
                            "Si pierde el mínimo, esos longs son combustible para más caída.")
             elif dejo_de_caer:
                 nivel, titulo = "🟡", "VIGILANCIA — El precio dejó de caer"
@@ -186,6 +234,12 @@ def evaluar(velas, est, fg_hist, sent_hoy, noticias_hoy, sesgo_pos, sesgo_exp, h
     else:
         titulo, lectura = "Rango", "Sin estructura clara todavía."
 
+    # Las confluencias se muestran SIEMPRE (no solo en días de sentimiento extremo)
+    if confluencias is None and t == "bajista":
+        confluencias = ("suelo", conf_suelo, n_suelo)
+    elif confluencias is None and t == "alcista":
+        confluencias = ("techo", conf_techo, n_techo)
+
     # Niveles clave
     niveles = {}
     if est.get("ultimo_max") and not est["ultimo_max"]["roto"]:
@@ -193,32 +247,60 @@ def evaluar(velas, est, fg_hist, sent_hoy, noticias_hoy, sesgo_pos, sesgo_exp, h
     if est.get("ultimo_min") and not est["ultimo_min"]["roto"]:
         niveles["abajo"] = est["ultimo_min"]["precio"]
 
+    # Qué confirma un giro y qué confirma que la tendencia sigue.
+    # Si el último swing ya está roto, se usa el extremo del tramo en curso.
+    giro = continuacion = None
+    if t == "bajista":
+        if "arriba" in niveles:
+            giro = (niveles["arriba"], "sobre", "CHoCH alcista")
+        if "abajo" in niveles:
+            continuacion = (niveles["abajo"], "bajo", "BOS bajista")
+        else:
+            desde_t = est["ultimo_max"]["t"] if est.get("ultimo_max") else int(velas[-10][0])
+            tramo = [float(v[3]) for v in velas if int(v[0]) >= desde_t] or [minimo]
+            continuacion = (min(tramo), "bajo", "nuevo mínimo del tramo")
+    elif t == "alcista":
+        if "abajo" in niveles:
+            giro = (niveles["abajo"], "bajo", "CHoCH bajista")
+        if "arriba" in niveles:
+            continuacion = (niveles["arriba"], "sobre", "BOS alcista")
+        else:
+            desde_t = est["ultimo_min"]["t"] if est.get("ultimo_min") else int(velas[-10][0])
+            tramo = [float(v[2]) for v in velas if int(v[0]) >= desde_t] or [maximo]
+            continuacion = (max(tramo), "sobre", "nuevo máximo del tramo")
+
     return {"nivel": nivel, "titulo": titulo, "lectura": lectura, "confluencias": confluencias,
-            "niveles": niveles, "tendencia": t, "serie": serie}
+            "niveles": niveles, "tendencia": t, "serie": serie,
+            "absorcion": absorcion(velas, sent_hoy, noticias_hoy),
+            "giro": giro, "continuacion": continuacion}
+
+
+def texto_niveles(r):
+    """Los dos niveles que importan: el que confirma un giro y el que confirma que la tendencia sigue."""
+    lineas = []
+    if r.get("giro"):
+        precio, lado, nombre = r["giro"]
+        lineas.append(f"{'⬆️' if lado == 'sobre' else '⬇️'} Giro: cierre {lado} <b>${precio:,.0f}</b> ({nombre})")
+    if r.get("continuacion"):
+        precio, lado, nombre = r["continuacion"]
+        lineas.append(f"{'⬆️' if lado == 'sobre' else '⬇️'} Continuación: cierre {lado} <b>${precio:,.0f}</b> ({nombre})")
+    return lineas
 
 
 def texto_escenario(r):
     lineas = [f"🎯 <b>Escenario: {r['nivel']} {r['titulo']}</b>", r["lectura"]]
+    reaccion = texto_absorcion(r.get("absorcion"))
+    if reaccion:
+        lineas.append(reaccion)
     if r["confluencias"]:
         tipo, lista, n = r["confluencias"]
-        lineas.append(f"\nConfluencias de {tipo} ({n}/5):")
+        lineas.append(f"\nConfluencias de {tipo}: <b>{n} de 5</b>")
         lineas += [f"{'✅' if ok else '▫️'} {nombre}" for nombre, ok in lista]
-    niv = r["niveles"]
-    if niv:
-        if r["tendencia"] == "bajista":
-            partes = []
-            if "arriba" in niv:
-                partes.append(f"CHoCH alcista si cierra sobre ${niv['arriba']:,.0f}")
-            if "abajo" in niv:
-                partes.append(f"BOS bajista si cierra bajo ${niv['abajo']:,.0f}")
-        elif r["tendencia"] == "alcista":
-            partes = []
-            if "abajo" in niv:
-                partes.append(f"CHoCH bajista si cierra bajo ${niv['abajo']:,.0f}")
-            if "arriba" in niv:
-                partes.append(f"BOS alcista si cierra sobre ${niv['arriba']:,.0f}")
-        else:
-            partes = [f"${v:,.0f}" for v in niv.values()]
-        lineas.append("\n📍 Niveles: " + " | ".join(partes))
+    niveles = texto_niveles(r)
+    if niveles:
+        lineas.append("\n📍 <b>Niveles que deciden</b>")
+        lineas += niveles
     lineas.append("Sentimiento últimos días: " + " → ".join(f"{s:+d}" for s in r["serie"]))
+    if r["nivel"] in ("🟠", "🔴"):
+        lineas.append("\n💬 <b>Alerta importante: pégale este reporte a Claude para el análisis a fondo.</b>")
     return "\n".join(lineas)

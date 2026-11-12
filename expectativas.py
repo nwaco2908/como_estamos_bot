@@ -169,8 +169,11 @@ REPORTE = re.compile(
 )
 
 
+MIN_OBJETIVOS = 5  # con menos titulares que proyecten un precio, no se sacan conclusiones
+
+
 def objetivos_titulares(titulares, precio):
-    arriba, abajo = [], []
+    arriba, abajo, detalle = [], [], []
     for t in titulares:
         titulo = t["titulo"]
         if not PROYECCION.search(titulo):
@@ -185,7 +188,8 @@ def objetivos_titulares(titulares, precio):
             if abs(nivel / precio - 1) < 0.03:  # niveles casi iguales al precio actual no son objetivos
                 continue
             (arriba if nivel > precio else abajo).append(nivel)
-    return {"arriba": sorted(arriba), "abajo": sorted(abajo, reverse=True)}
+            detalle.append((nivel, titulo))
+    return {"arriba": sorted(arriba), "abajo": sorted(abajo, reverse=True), "detalle": detalle}
 
 
 # ───────────────────────── UNIR TODO ─────────────────────────
@@ -204,31 +208,43 @@ def obtener_expectativas(precio, titulares):
 
 
 def sesgo_expectativas(exp):
-    """-100 = la gente espera bajada; +100 = espera subida."""
-    partes = []
+    """
+    -100 = la gente espera bajada; +100 = espera subida.
+    Polymarket y las opciones (dinero real) pesan el doble que los titulares (opiniones).
+    Polymarket solo cuenta si tiene mercado hacia ARRIBA y hacia ABAJO: con un solo lado no se
+    puede comparar. Los titulares solo cuentan si hay al menos MIN_OBJETIVOS, y nunca solos.
+    """
+    partes = []  # (valor, peso)
     pm = exp.get("polymarket")
     if pm and pm["arriba"] and pm["abajo"]:
-        partes.append((pm["arriba"][0]["prob"] - pm["abajo"][0]["prob"]) * 100)
+        partes.append(((pm["arriba"][0]["prob"] - pm["abajo"][0]["prob"]) * 100, 1.0))
     op = exp.get("opciones")
     if op:
         # put/call ~0.7 es lo normal en BTC; 1.0 o más = mucha cobertura bajista
-        partes.append(max(-100, min(100, (0.7 - op["put_call"]) / 0.3 * 100)))
+        partes.append((max(-100, min(100, (0.7 - op["put_call"]) / 0.3 * 100)), 1.0))
+    if not partes:
+        return None  # sin dinero real de por medio no hay lectura
     ti = exp.get("titulares") or {}
     n_ar, n_ab = len(ti.get("arriba", [])), len(ti.get("abajo", []))
-    if n_ar + n_ab >= 2:
-        partes.append((n_ar - n_ab) / (n_ar + n_ab) * 100)
-    if not partes:
-        return None
-    return round(sum(partes) / len(partes))
+    if n_ar + n_ab >= MIN_OBJETIVOS:
+        partes.append(((n_ar - n_ab) / (n_ar + n_ab) * 100, 0.5))
+    return round(sum(v * w for v, w in partes) / sum(w for _, w in partes))
+
+
+def _esc(t):
+    return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def texto_expectativas(exp, sesgo):
     lineas = ["🔮 <b>¿Qué espera la gente?</b>"]
     pm = exp.get("polymarket")
     if pm and (pm["arriba"] or pm["abajo"]):
-        for f in pm["arriba"][:1] + pm["abajo"][:1]:
-            flecha = "⬆️" if f in pm["arriba"] else "⬇️"
-            lineas.append(f"{flecha} Polymarket: {f['prob'] * 100:.0f}% a ${f['nivel']:,.0f} (vence {f['fin']:%d %b})")
+        # Es la probabilidad de TOCAR ese precio: un % bajo significa que la gente NO lo espera
+        for lado, f in [("arriba", x) for x in pm["arriba"][:1]] + [("abajo", x) for x in pm["abajo"][:1]]:
+            lineas.append(f"Polymarket: {f['prob'] * 100:.0f}% de probabilidad de tocar ${f['nivel']:,.0f} "
+                          f"({lado}, vence {f['fin']:%d %b})")
+        if not (pm["arriba"] and pm["abajo"]):
+            lineas.append("<i>Polymarket solo tiene un lado hoy: no entra en el promedio.</i>")
     op = exp.get("opciones")
     if op:
         lineas.append(f"Opciones Deribit: put/call {op['put_call']:.2f} "
@@ -243,6 +259,10 @@ def texto_expectativas(exp, sesgo):
         if ti["arriba"]:
             txt += f" (más alto: ${max(ti['arriba']):,.0f})"
         lineas.append(txt)
+        for nivel, titulo in sorted(ti.get("detalle") or [], key=lambda x: -x[0])[:3]:
+            lineas.append(f"• ${nivel:,.0f} — {_esc(titulo[:90])}")
+        if len(ti["arriba"]) + len(ti["abajo"]) < MIN_OBJETIVOS:
+            lineas.append(f"<i>Menos de {MIN_OBJETIVOS} objetivos: no entran en el promedio.</i>")
     if sesgo is not None:
         if sesgo <= -30:
             lectura = "La gente espera BAJADA ⬇️"

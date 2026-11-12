@@ -12,14 +12,16 @@ import urllib.request
 from datetime import datetime, timezone
 
 from estructura import analizar_estructura, preparar_velas, texto_estructura
-from noticias import analizar_noticias, obtener_titulares, sentimiento_combinado, texto_noticias
-from posicionamiento import obtener_posicionamiento, sesgo_multitud, texto_posicionamiento
+from noticias import (analizar_noticias, etiqueta_sentimiento, obtener_titulares, puntaje_fiable,
+                      sentimiento_combinado, texto_noticias)
+from posicionamiento import etiqueta_multitud, obtener_posicionamiento, sesgo_multitud, texto_posicionamiento
 from expectativas import obtener_expectativas, sesgo_expectativas, texto_expectativas
 from semanal import texto_semanal
-from escenarios import evaluar, fecha_iso, texto_escenario
+from escenarios import evaluar, fecha_iso, texto_escenario, texto_niveles
 import historial
 from ciclo import linea_ciclo, lectura_combinada, obtener_ciclo, texto_ciclo
-from macro import obtener_macro, texto_macro
+from macro import obtener_macro, origen_miedo, texto_macro
+from senales import texto_marcador
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 # Uno o varios destinos separados por coma: tu chat personal, un canal (@nombre o -100...), un grupo
@@ -178,7 +180,52 @@ def enviar_telegram(texto, limite=3900):
     return respuesta
 
 
-def reporte_diario(velas, est, fg_hist, pos, sesgo_pos, hist):
+def _fecha_corta(iso):
+    return datetime.fromisoformat(iso).strftime("%d %b")
+
+
+def comparar_con_anterior(previo, hoy):
+    """
+    Qué cambió frente al último reporte guardado.
+    Devuelve (alertas, cambios): las alertas van arriba del mensaje; los cambios, en su propio bloque.
+    """
+    if not previo:
+        return [], []
+    alertas, cambios = [], []
+
+    definidos = ("alcista", "bajista")
+    regimen_claro = previo.get("regimen") in definidos and hoy.get("regimen") in definidos
+    if regimen_claro and previo["regimen"] != hoy["regimen"]:
+        alertas.append(f"🚨 <b>CAMBIO DE RÉGIMEN</b>: {previo['regimen']} → {hoy['regimen']}")
+    fase_a, fase_h = previo.get("fase_regimen"), hoy.get("fase_regimen")
+    if fase_a and fase_h and fase_a != fase_h:
+        cambios.append(f"Fase del régimen: {fase_a} → {fase_h}")
+        if regimen_claro:  # si el régimen quedó sin definir (p. ej. faltaron velas) no se alerta
+            alertas.append(f"🔔 <b>Cambio de fase del régimen</b>: {fase_a} → {fase_h}")
+
+    esc_a, esc_h = previo.get("escenario"), hoy.get("escenario")
+    if esc_a and esc_h and esc_a != esc_h:
+        cambios.append(f"Escenario: {esc_a} → {esc_h}")
+        if esc_h.startswith(("🟠", "🔴")):
+            alertas.append(f"🔔 <b>Nueva alerta</b>: {esc_h}")
+
+    if previo.get("tendencia") and previo["tendencia"] != hoy.get("tendencia"):
+        cambios.append(f"Estructura interna: {previo['tendencia']} → {hoy['tendencia']}")
+    if previo.get("confluencias") and hoy.get("confluencias") and previo["confluencias"] != hoy["confluencias"]:
+        cambios.append(f"Confluencias: {previo['confluencias']} → {hoy['confluencias']}")
+    if previo.get("sentimiento") is not None and hoy.get("sentimiento") is not None:
+        et_a, et_h = etiqueta_sentimiento(previo["sentimiento"]), etiqueta_sentimiento(hoy["sentimiento"])
+        if et_a != et_h:
+            cambios.append(f"Sentimiento: {et_a} ({previo['sentimiento']:+d}) → {et_h} ({hoy['sentimiento']:+d})")
+    if previo.get("sesgo_multitud") is not None and hoy.get("sesgo_multitud") is not None:
+        mu_a, mu_h = etiqueta_multitud(previo["sesgo_multitud"]), etiqueta_multitud(hoy["sesgo_multitud"])
+        if mu_a != mu_h:
+            cambios.append(f"Multitud: {mu_a} → {mu_h}")
+    return alertas, cambios
+
+
+def reporte_diario(velas, est, fg_hist, pos, sesgo_pos, hist, avisos=None):
+    avisos = list(avisos or [])
     ultima, anterior = velas[-1], velas[-2]
     fecha = datetime.fromtimestamp(int(ultima[0]), tz=timezone.utc).strftime("%d %b %Y")
     cierre, maximo, minimo = float(ultima[4]), float(ultima[2]), float(ultima[3])
@@ -187,59 +234,102 @@ def reporte_diario(velas, est, fg_hist, pos, sesgo_pos, hist):
     fg_valor, fg_texto = fg_hist[-1]
     titulares, fallidas = obtener_titulares(horas=24)
     noticias = analizar_noticias(titulares)
-    combinado = sentimiento_combinado(fg_valor, noticias["puntaje"])
+    # Si hay muy pocos titulares (p. ej. Google News no respondió), las noticias NO cuentan hoy:
+    # un "0" por falta de datos no es lo mismo que un día neutral.
+    noticias_ok = puntaje_fiable(noticias)
+    if noticias_ok is None:
+        avisos.append(f"noticias (solo {noticias['total']} titulares: hoy no cuentan para el sentimiento)")
+    combinado = sentimiento_combinado(fg_valor, noticias_ok)
     exp = obtener_expectativas(cierre, titulares)
     sesgo_exp = sesgo_expectativas(exp)
+    avisos += [f"expectativas ({f})" for f in exp.get("fallos") or []]
+
+    ls = (pos or {}).get("long_short") or {}
+    fu = (pos or {}).get("funding") or {}
+    if not ls:
+        avisos.append("posicionamiento (ningún exchange entregó el ratio de cuentas)")
+    elif len(ls.get("fuentes") or []) < 2:
+        avisos.append(f"posicionamiento (ratio de cuentas de un solo exchange: {', '.join(ls.get('fuentes') or [])})")
 
     previos = [d for d in hist if d.get("fecha") != fecha_iso(ultima)]
-    esc = evaluar(velas, est, fg_hist, combinado, noticias["puntaje"], sesgo_pos, sesgo_exp, previos)
+    esc = evaluar(velas, est, fg_hist, combinado, noticias_ok, sesgo_pos, sesgo_exp, previos)
 
     # Régimen de fondo (la marea) y contexto macro
     ult_noticias = [d.get("noticias") for d in previos[-6:] if d.get("noticias") is not None]
-    if noticias["puntaje"] is not None:
-        ult_noticias.append(noticias["puntaje"])
+    if noticias_ok is not None:
+        ult_noticias.append(noticias_ok)
     noticias_prom = sum(ult_noticias) / len(ult_noticias) if ult_noticias else None
     ciclo = obtener_ciclo(velas, noticias_prom)
+    if not ciclo:
+        avisos.append("régimen de fondo")
     try:
         mac = obtener_macro(dias=1)
+        avisos += [f"macro ({f})" for f in mac.get("fallos") or []]
     except Exception as e:
         print("Macro no disponible:", e)
         mac = None
+        avisos.append("macro")
 
     # Memoria: guardamos el día para los próximos análisis
-    ls = (pos or {}).get("long_short") or {}
-    fu = (pos or {}).get("funding") or {}
+    conf = esc.get("confluencias")
+    registro = {
+        "fecha": fecha_iso(ultima),
+        "cierre": round(cierre, 1), "maximo": round(maximo, 1), "minimo": round(minimo, 1),
+        "tendencia": est["tendencia"],
+        "eventos": [e["tipo"] for e in est["eventos_hoy"]],
+        "fear_greed": fg_valor,
+        "noticias": noticias_ok,              # None si ese día no eran fiables
+        "noticias_crudo": noticias["puntaje"],
+        "n_titulares": noticias["total"],
+        "narrativas": noticias["narrativas"],
+        "resiliencia": len(noticias["resiliencia"]),
+        "sentimiento": combinado,
+        "absorcion": esc["absorcion"]["puntaje"] if esc.get("absorcion") else None,
+        "sesgo_multitud": sesgo_pos,
+        "ratio_long_short": round(ls["ratio"], 3) if ls.get("ratio") else None,
+        "desvio_long_short": round(ls["desvio"], 1) if ls.get("desvio") is not None else None,
+        "fuentes_long_short": ls.get("fuentes"),
+        "funding": fu.get("actual"),
+        "sesgo_expectativas": sesgo_exp,
+        "escenario": f"{esc['nivel']} {esc['titulo']}",
+        "confluencias": f"{conf[0]} {conf[2]}/5" if conf else None,
+        "giro": [round(esc["giro"][0], 1), *esc["giro"][1:]] if esc.get("giro") else None,
+        "continuacion": [round(esc["continuacion"][0], 1), *esc["continuacion"][1:]] if esc.get("continuacion") else None,
+        "regimen": ciclo["regimen"] if ciclo else None,
+        "fase_regimen": f"{ciclo['icono']} {ciclo['fase']}" if ciclo else None,
+        "macro": mac["puntaje"] if mac else None,
+        "avisos": avisos,
+    }
     try:
-        historial.guardar({
-            "fecha": fecha_iso(ultima),
-            "cierre": round(cierre, 1), "maximo": round(maximo, 1), "minimo": round(minimo, 1),
-            "tendencia": est["tendencia"],
-            "eventos": [e["tipo"] for e in est["eventos_hoy"]],
-            "fear_greed": fg_valor,
-            "noticias": noticias["puntaje"],
-            "n_titulares": noticias["total"],
-            "narrativas": noticias["narrativas"],
-            "sentimiento": combinado,
-            "sesgo_multitud": sesgo_pos,
-            "ratio_long_short": round(ls["ratio"], 3) if ls.get("ratio") else None,
-            "funding": fu.get("actual"),
-            "sesgo_expectativas": sesgo_exp,
-            "escenario": f"{esc['nivel']} {esc['titulo']}",
-            "regimen": ciclo["regimen"] if ciclo else None,
-            "fase_regimen": f"{ciclo['icono']} {ciclo['fase']}" if ciclo else None,
-            "macro": mac["puntaje"] if mac else None,
-        })
+        historial.guardar(registro)
     except Exception as e:
         print("No pude guardar el historial:", e)
 
+    previo = previos[-1] if previos else None
+    alertas, cambios = comparar_con_anterior(previo, registro)
+
     flecha = "🟢" if cambio >= 0 else "🔴"
-    partes = [
+    partes = []
+    if alertas:  # lo urgente va en la primera línea: es lo que se ve en la notificación
+        if esc["nivel"] not in ("🟠", "🔴"):  # en 🟠/🔴 el propio escenario ya lo pide
+            alertas.append("💬 Pégale este reporte a Claude para el análisis a fondo.")
+        partes.append("\n".join(alertas))
+    partes += [
         f"<b>Como Estamos</b>\nVela del {fecha}",
         f"₿ Cierre: <b>${cierre:,.0f}</b> {flecha} {cambio:+.2f}%\nMáximo: ${maximo:,.0f} | Mínimo: ${minimo:,.0f}",
         texto_escenario(esc),
     ]
-    if ciclo:
-        partes.append("\n".join(x for x in (linea_ciclo(ciclo), lectura_combinada(ciclo, est)) if x))
+    if previo:
+        titulo = f"🔄 <b>Frente al reporte anterior</b> ({_fecha_corta(previo['fecha'])})"
+        partes.append(titulo + ("\n" + "\n".join(f"• {c}" for c in cambios) if cambios else ": sin cambios"))
+    contexto = [x for x in (
+        linea_ciclo(ciclo) if ciclo else "",
+        lectura_combinada(ciclo, est) if ciclo else "",
+        origen_miedo(combinado, noticias_ok, mac),
+        ("⚠️ <b>Datos incompletos hoy</b>: " + "; ".join(avisos)) if avisos else "",
+    ) if x]
+    if contexto:
+        partes.append("\n".join(contexto))
     partes += [texto_estructura(est), texto_noticias(noticias, combinado, fg_valor, fg_texto, fallidas)]
     if mac:
         partes.append(texto_macro(mac))
@@ -248,26 +338,70 @@ def reporte_diario(velas, est, fg_hist, pos, sesgo_pos, hist):
     return "\n\n".join(partes)
 
 
+def veredicto_semanal(registro, ciclo, est, registros_semana):
+    """El resumen de arriba del semanal: marea, olas, confluencias, niveles y próxima señal."""
+    lineas = ["🧾 <b>En resumen</b>"]
+    if ciclo:
+        lineas.append(f"Marea: régimen <b>{ciclo['regimen']}</b> · fase {ciclo['icono']} <b>{ciclo['fase']}</b>")
+    olas = f"Olas: estructura interna <b>{est['tendencia']}</b>"
+    if registro and registro.get("escenario"):
+        olas += f" · escenario {registro['escenario']}"
+    lineas.append(olas)
+    if registro and registro.get("confluencias"):
+        lineas.append(f"Confluencias de {registro['confluencias']}")
+    if registro:
+        lineas += texto_niveles({"giro": registro.get("giro"), "continuacion": registro.get("continuacion")})
+    if ciclo and ciclo.get("proxima"):
+        lineas.append(f"⏭ Próxima señal: {ciclo['proxima']}")
+    # Cambios de fase durante la semana
+    fases = []
+    for d in registros_semana:
+        f = d.get("fase_regimen")
+        if f and (not fases or fases[-1][1] != f):
+            fases.append((d["fecha"], f))
+    if len(fases) > 1:
+        lineas.append("Fases en la semana: " + " → ".join(f"{f} ({_fecha_corta(fe)})" for fe, f in fases))
+    return "\n".join(lineas)
+
+
 def reporte_semanal(velas, est, fg_hist, pos):
     titulares_sem, _ = obtener_titulares(horas=24 * 7)
     noticias_sem = analizar_noticias(titulares_sem, n=5)
     cierre = float(velas[-1][4])
     exp = obtener_expectativas(cierre, titulares_sem)
     desde = fecha_iso(velas[-7])
-    escenarios_sem = [(d["fecha"], d.get("escenario")) for d in historial.cargar()
-                      if d.get("fecha", "") >= desde and d.get("escenario")]
     hist = historial.cargar()
-    ult = [d.get("noticias") for d in hist if d.get("fecha", "") >= desde and d.get("noticias") is not None]
-    noticias_prom = sum(ult) / len(ult) if ult else noticias_sem["puntaje"]
+    semana = [d for d in hist if d.get("fecha", "") >= desde]
+    escenarios_sem = [(d["fecha"], d.get("escenario")) for d in semana if d.get("escenario")]
+
+    # UNA sola cifra de noticias para la semana: el promedio de los puntajes diarios fiables
+    ult = [d.get("noticias") for d in semana if d.get("noticias") is not None]
+    noticias_prom = sum(ult) / len(ult) if ult else puntaje_fiable(noticias_sem)
     ciclo = obtener_ciclo(velas, noticias_prom)
+
+    avisos = []
+    faltan = 7 - len({d["fecha"] for d in semana})
+    if faltan > 0:
+        avisos.append(f"{faltan} día(s) sin registro en la memoria")
+    incompletos = sum(1 for d in semana if d.get("avisos"))
+    if incompletos:
+        avisos.append(f"{incompletos} día(s) con alguna fuente caída (ver los reportes diarios)")
     try:
-        mac_txt = texto_macro(obtener_macro(dias=7, n=4), semanal=True)
+        mac = obtener_macro(dias=7, n=4)
+        mac_txt = texto_macro(mac, semanal=True)
+        if "titulares macro" in (mac.get("fallos") or []):
+            avisos.append("macro sin titulares (solo mercados)")
     except Exception as e:
         print("Macro semanal no disponible:", e)
         mac_txt = ""
+        avisos.append("macro")
+
+    hoy = next((d for d in semana if d.get("fecha") == fecha_iso(velas[-1])), None)
     return texto_semanal(velas, est, fg_hist[-7:], noticias_sem, pos,
                          texto_expectativas(exp, sesgo_expectativas(exp)), escenarios_sem,
-                         texto_ciclo(ciclo), mac_txt)
+                         texto_ciclo(ciclo), mac_txt, noticias_prom=noticias_prom,
+                         veredicto=veredicto_semanal(hoy, ciclo, est, semana),
+                         marcador=texto_marcador(hist, velas), avisos=avisos)
 
 
 def main():
@@ -289,14 +423,23 @@ def main():
             return
 
     est = analizar_estructura(preparar_velas(velas))
-    fg_hist = fear_and_greed(10)
+    avisos = []
+    try:
+        fg_hist = fear_and_greed(10)
+    except Exception as e:
+        # Si alternative.me no responde, el bot NO se cae: usa los últimos valores de la memoria
+        print("Fear & Greed no disponible:", e)
+        fg_hist = [(d["fear_greed"], "último dato guardado") for d in hist if d.get("fear_greed") is not None][-10:]
+        if not fg_hist:
+            raise
+        avisos.append("Fear &amp; Greed (uso el último valor guardado)")
     pos = obtener_posicionamiento()
     sesgo_pos = sesgo_multitud(pos)
 
     domingo_cerrado = datetime.fromtimestamp(int(velas[-1][0]), tz=timezone.utc).weekday() == 6
 
     if modo in ("auto", "diario"):
-        r = enviar_telegram(reporte_diario(velas, est, fg_hist, pos, sesgo_pos, hist))
+        r = enviar_telegram(reporte_diario(velas, est, fg_hist, pos, sesgo_pos, hist, avisos))
         print("Diario:", "OK" if r.get("ok") else r)
     if modo == "semanal" or (modo == "auto" and domingo_cerrado):
         r = enviar_telegram(reporte_semanal(velas, est, fg_hist, pos))

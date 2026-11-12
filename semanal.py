@@ -25,7 +25,15 @@ def _esc(t):
 
 
 def texto_semanal(velas, est, fg_hist, noticias_sem, pos, exp_texto, escenarios_sem=None,
-                  ciclo_texto="", macro_texto=""):
+                  ciclo_texto="", macro_texto="", noticias_prom=None, veredicto="", marcador="",
+                  avisos=None):
+    """
+    escenarios_sem: {fecha ISO: escenario} de la memoria del bot.
+    noticias_prom: promedio de los puntajes diarios de noticias (la ÚNICA cifra de noticias de la semana).
+    veredicto: bloque de "en resumen" (escenario, confluencias, niveles) armado por el bot.
+    marcador: bloque de "¿cómo les fue a las señales?".
+    avisos: lista de datos incompletos de la semana.
+    """
     semana = velas[-7:]
     apertura = float(semana[0][1])
     cierre = float(semana[-1][4])
@@ -51,6 +59,12 @@ def texto_semanal(velas, est, fg_hist, noticias_sem, pos, exp_texto, escenarios_
         recorrido.append(f"{DIAS[_f(v[0]).weekday()]} {'🟢' if c >= 0 else '🔴'}")
     lineas.append(" ".join(recorrido))
 
+    # Lo importante primero: el veredicto
+    if veredicto:
+        lineas += ["", veredicto]
+    if avisos:
+        lineas += ["", "⚠️ <b>Datos incompletos</b>: " + "; ".join(avisos)]
+
     # Régimen de fondo (la marea)
     if ciclo_texto:
         lineas += ["", ciclo_texto]
@@ -67,10 +81,15 @@ def texto_semanal(velas, est, fg_hist, noticias_sem, pos, exp_texto, escenarios_
 
     # Escenarios que marcó el bot cada día
     if escenarios_sem:
+        por_fecha = dict(escenarios_sem)
         lineas += ["", "🎯 <b>Escenarios de la semana</b>"]
-        for fecha, esc in escenarios_sem:
-            dia = DIAS[datetime.fromisoformat(fecha).weekday()]
-            lineas.append(f"{dia}: {esc}")
+        for v in semana:  # los 7 días, para que se note si algún día el bot no corrió
+            f = _f(v[0])
+            lineas.append(f"{DIAS[f.weekday()]}: {por_fecha.get(f.date().isoformat(), '— sin registro (el bot no corrió ese día)')}")
+
+    # ¿Qué pasó después de cada señal?
+    if marcador:
+        lineas += ["", marcador]
 
     # Sentimiento
     lineas += ["", "🧠 <b>Sentimiento de la semana</b>"]
@@ -83,10 +102,17 @@ def texto_semanal(velas, est, fg_hist, noticias_sem, pos, exp_texto, escenarios_
         )
         lineas.append("Día a día: " + " → ".join(str(v) for v in valores))
     if noticias_sem["total"]:
+        # Una sola cifra de noticias para toda la semana: el promedio de los puntajes diarios.
+        # Si la memoria no tiene días con noticias, se usa el conteo de los titulares de la semana.
+        cifra = noticias_prom if noticias_prom is not None else noticias_sem["puntaje"]
+        origen = "promedio de los días" if noticias_prom is not None else "titulares de la semana"
         lineas.append(
-            f"Noticias: {noticias_sem['puntaje']:+d} {etiqueta_sentimiento(noticias_sem['puntaje'])} "
-            f"({noticias_sem['neg']} 🔴 / {noticias_sem['pos']} 🟢 de {noticias_sem['total']})"
+            f"Noticias: {cifra:+.0f} {etiqueta_sentimiento(cifra)} ({origen}; "
+            f"{noticias_sem['neg']} 🔴 / {noticias_sem['pos']} 🟢 de {noticias_sem['total']} titulares)"
         )
+        if noticias_sem.get("resiliencia"):
+            lineas.append(f"💪 Resiliencia: {len(noticias_sem['resiliencia'])} titular(es) dicen que el precio "
+                          "aguantó pese a las malas noticias")
         if noticias_sem["narrativas"]:
             top = sorted(noticias_sem["narrativas"].items(), key=lambda x: -x[1])[:5]
             lineas.append("⚠️ Narrativas: " + ", ".join(f"{k} ×{v}" for k, v in top))
@@ -111,6 +137,11 @@ def texto_semanal(velas, est, fg_hist, noticias_sem, pos, exp_texto, escenarios_
             lineas.append(f"Ratio long/short: {ls['hace_7d']:.2f} → {ls['ratio']:.2f} (la gente se puso {cambio_ls})")
         elif ls:
             lineas.append(f"Ratio long/short: {ls['ratio']:.2f}")
+        if ls:
+            lineas.append(f"Frente a su nivel normal de 30 días: {ls['desvio']:+.0f}%")
+            if ls.get("fuentes"):
+                lineas.append(f"<i>Exchanges de esta semana: {', '.join(ls['fuentes'])}. Si cambian de una semana "
+                              "a otra, el ratio no es comparable; el % frente a lo normal sí.</i>")
         if f and f.get("promedio_7d") is not None:
             lineas.append(f"Funding promedio de la semana: {f['promedio_7d'] * 100:+.4f}%")
 

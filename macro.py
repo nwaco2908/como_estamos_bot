@@ -62,10 +62,16 @@ def _pat(d):
 P_OFF, P_ON = _pat(RISK_OFF), _pat(RISK_ON)
 
 
-def _descargar(url):
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (como-estamos-bot)"})
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        return resp.read()
+def _descargar(url, intentos=1):
+    ultimo = None
+    for _ in range(intentos):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (como-estamos-bot)"})
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                return resp.read()
+        except Exception as e:
+            ultimo = e
+    raise ultimo
 
 
 # ───────────────────────── PRECIOS ─────────────────────────
@@ -105,10 +111,15 @@ def titulares_macro(dias=1):
         url = ("https://news.google.com/rss/search?q=" + urllib.parse.quote(f"{q} when:{dias}d")
                + "&hl=en-US&gl=US&ceid=US:en")
         try:
-            raiz = ET.fromstring(_descargar(url))
+            raiz = ET.fromstring(_descargar(url, intentos=2))
         except Exception as e:
-            print("Titulares macro no disponibles:", e)
-            continue
+            print("Titulares macro (Google News) no disponibles:", e)
+            try:  # respaldo: Bing News
+                raiz = ET.fromstring(_descargar(
+                    "https://www.bing.com/news/search?q=" + urllib.parse.quote(q) + "&format=rss"))
+            except Exception as e2:
+                print("Titulares macro (Bing News) no disponibles:", e2)
+                continue
         for item in raiz.iter("item"):
             titulo = (item.findtext("title") or "").strip()
             try:
@@ -120,6 +131,8 @@ def titulares_macro(dias=1):
             limpio = re.sub(r"\s+-\s+[^-]{2,40}$", "", titulo)  # quita " - Medio" del final
             if EXCLUIR.search(limpio) or CLICKBAIT.search(limpio):
                 continue
+            if len(limpio) > 160:
+                continue  # eso no es un titular, es el resumen de una nota
             clave = re.sub(r"\W+", " ", limpio.lower()).strip()
             if clave in vistos:
                 continue
@@ -157,9 +170,18 @@ def analizar_macro(precios, titulares, n=3, clave="dia"):
         if partes:
             p_mer = max(-100, min(100, sum(partes) / len(partes) * 2))
 
-    # Los precios son hechos; los titulares, opiniones: los mercados pesan más
+    # Los precios son hechos; los titulares, opiniones: los mercados pesan más.
+    # En la semana se juntan muchos titulares de guerra/sanciones y el puntaje de titulares se
+    # satura hacia lo negativo, así que ahí pesan todavía menos.
+    w_mer = 0.85 if clave == "semana" else 0.7
     if p_tit is not None and p_mer is not None:
-        puntaje = round(0.6 * p_mer + 0.4 * p_tit)
+        puntaje = round(w_mer * p_mer + (1 - w_mer) * p_tit)
+        # "Fuerte" exige que los MERCADOS lo confirmen (o un VIX de 25+): los titulares solos no bastan
+        vix_alto = precios.get("VIX", {}).get("ultimo", 0) >= 25
+        if puntaje <= -40 and p_mer > -40 and not vix_alto:
+            puntaje = -39
+        elif puntaje >= 40 and p_mer < 40:
+            puntaje = 39
     elif p_mer is not None or p_tit is not None:
         puntaje = round(p_mer if p_mer is not None else p_tit)
     else:
@@ -180,7 +202,41 @@ def obtener_macro(dias=1, n=3):
         clave = "dia"
     a = analizar_macro(precios, titulares, n, clave)
     a["precios"], a["fallos"] = precios, fallos
+    if not titulares:
+        a["fallos"] = fallos + ["titulares macro"]
     return a
+
+
+def origen_miedo(sentimiento, noticias_cripto, m):
+    """
+    ¿De dónde viene el miedo: del mundo cripto o de la bolsa?
+    Importa para la tesis: si BTC cae porque cae el Nasdaq, un suelo cripto es menos fiable
+    hasta que la bolsa se calme.
+    """
+    if sentimiento is None or sentimiento > -25 or not m or not m.get("precios"):
+        return ""
+    pr = m["precios"]
+    vix = pr.get("VIX", {}).get("ultimo")
+    nas = pr.get("Nasdaq", {}).get("semana")
+    datos = []
+    if vix is not None:
+        datos.append(f"VIX {vix:.1f}")
+    if nas is not None:
+        datos.append(f"Nasdaq {nas:+.1f}% en la semana")
+    datos = ", ".join(datos)
+    bolsa = (vix is not None and vix >= 25) or (nas is not None and nas <= -3) or \
+            (m.get("puntaje") is not None and m["puntaje"] <= -40)
+    cripto = noticias_cripto is not None and noticias_cripto <= -25
+    if bolsa and cripto:
+        return (f"🌍 <b>Origen del miedo: bolsa y cripto a la vez</b> ({datos}). "
+                "Un suelo es menos fiable hasta que la bolsa se calme.")
+    if bolsa:
+        return (f"🌍 <b>Origen del miedo: la bolsa</b> ({datos}). BTC se está moviendo con el Nasdaq: "
+                "un suelo es menos fiable hasta que la bolsa se calme.")
+    if cripto:
+        return (f"🌍 <b>Origen del miedo: el mundo cripto</b>; la bolsa está tranquila ({datos}). "
+                "Es el caso que busca la tesis: malas noticias propias que el precio puede absorber.")
+    return ""
 
 
 def _esc(t):

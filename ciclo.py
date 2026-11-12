@@ -85,6 +85,7 @@ def analizar_ciclo(velas, fg, funding_prom=None, noticias_prom=None):
 
     fase, icono, lectura = "Sin régimen claro", "⚪", "La estructura principal todavía no define tendencia."
     detalle = {}
+    proxima = ""  # qué tendría que pasar para pasar a la siguiente fase
 
     if regimen == "alcista":
         # Máximo del régimen y retroceso desde ahí
@@ -124,6 +125,15 @@ def analizar_ciclo(velas, fg, funding_prom=None, noticias_prom=None):
         else:
             fase, icono = "Retroceso sin miedo", "⚪"
             lectura = f"Retroceso de {retroceso:.0f}% sin pánico: corrección normal, sin ventaja contrarian clara."
+
+        if fase == "Retroceso con miedo":
+            faltan = max(1, 3 - dias_desde_piso)
+            proxima = (f"si pasan {faltan} día(s) más sin un mínimo bajo ${piso_ret:,.0f} (y sigue el miedo) "
+                       "→ 🟠 Retroceso absorbido")
+        elif fase == "Retroceso absorbido":
+            proxima = (f"si el cierre supera ${piso_ret * (1 + REANUDA_MIN / 100):,.0f} "
+                       f"(+{REANUDA_MIN:.0f}% desde el piso) → 🔴 Reanudación alcista; "
+                       f"un mínimo bajo ${piso_ret:,.0f} la devuelve a 🟡 Retroceso con miedo")
 
     elif regimen == "bajista":
         tramo = range(idx_inicio, hoy + 1)
@@ -168,6 +178,15 @@ def analizar_ciclo(velas, fg, funding_prom=None, noticias_prom=None):
             fase, icono = "Rebote sin optimismo", "⚪"
             lectura = f"Rebote de {rebote:.0f}% sin euforia: movimiento normal dentro de la tendencia bajista."
 
+        if fase == "Rebote con optimismo":
+            faltan = max(1, 3 - dias_desde_techo)
+            proxima = (f"si pasan {faltan} día(s) más sin un máximo sobre ${techo_reb:,.0f} (y sigue el optimismo) "
+                       "→ 🟠 Rebote agotado")
+        elif fase == "Rebote agotado":
+            proxima = (f"si el cierre pierde ${techo_reb * (1 - REANUDA_MIN / 100):,.0f} "
+                       f"(-{REANUDA_MIN:.0f}% desde el techo) → 🔴 Reanudación bajista; "
+                       f"un máximo sobre ${techo_reb:,.0f} la devuelve a 🟡 Rebote con optimismo")
+
     # Niveles de la estructura principal
     nivel_choch = None
     if regimen == "alcista" and est_p.get("ultimo_min") and not est_p["ultimo_min"]["roto"]:
@@ -177,6 +196,7 @@ def analizar_ciclo(velas, fg, funding_prom=None, noticias_prom=None):
 
     return {
         "regimen": regimen, "fase": fase, "icono": icono, "lectura": lectura, "detalle": detalle,
+        "proxima": proxima,
         "precio": p, "nivel_choch": nivel_choch, "est_principal": est_p,
         "fg7": fg7, "fg30": fg30, "fg90": fg90,
         "ext_miedo_30": sum(1 for x in fg[-30:] if x <= 25),
@@ -223,7 +243,10 @@ def lectura_combinada(c, est_interna):
 def linea_ciclo(c):
     if not c:
         return ""
-    return f"🌐 Régimen de fondo: <b>{c['regimen'].capitalize()}</b> | Fase: {c['icono']} <b>{c['fase']}</b>"
+    linea = f"🌐 Régimen de fondo: <b>{c['regimen'].capitalize()}</b> | Fase: {c['icono']} <b>{c['fase']}</b>"
+    if c.get("proxima"):
+        linea += f"\n⏭ Próxima señal: {c['proxima']}"
+    return linea
 
 
 def texto_ciclo(c):
@@ -253,7 +276,7 @@ def texto_ciclo(c):
     if c["funding_30d"] is not None:
         lineas.append(f"Funding promedio 30 días: {c['funding_30d'] * 100:+.4f}%")
     if c["noticias_prom"] is not None:
-        lineas.append(f"Noticias promedio de la semana: {c['noticias_prom']:+.0f}")
+        lineas.append(f"Noticias (promedio de los días de la semana): {c['noticias_prom']:+.0f}")
     ultimo = ep.get("ultimo_evento")
     if ultimo:
         lineas.append(f"Último evento principal (swing {SWING_PRINCIPAL}): {ultimo['tipo']} en ${ultimo['nivel']:,.0f} ({_f(ultimo['t'])})")

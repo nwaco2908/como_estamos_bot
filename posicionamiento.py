@@ -218,10 +218,25 @@ def sesgo_multitud(pos):
     return round(sum(partes) / len(partes))
 
 
+def etiqueta_multitud(sesgo):
+    """Misma escala en todo el bot: ±15 = la multitud está de un lado; ±40 = está cargada."""
+    if sesgo is None:
+        return ""
+    if sesgo <= -40:
+        return "🐻 Multitud cargada en SHORT"
+    if sesgo <= -15:
+        return "🐻 Multitud en short"
+    if sesgo >= 40:
+        return "🐂 Multitud cargada en LONG"
+    if sesgo >= 15:
+        return "🐂 Multitud en long"
+    return "Posicionamiento equilibrado"
+
+
 def texto_posicionamiento(pos, sesgo):
     detalle = pos.get("por_exchange") or {}
-    fuentes = sorted(set(detalle.get("ls") or {}) | set(detalle.get("funding") or {}))
-    lineas = [f"⚖️ <b>Posicionamiento del mercado</b> (promedio de {len(fuentes)} exchanges)"]
+    f_ls, f_fu = list(detalle.get("ls") or {}), list(detalle.get("funding") or {})
+    lineas = ["⚖️ <b>Posicionamiento del mercado</b>"]
 
     ls = pos.get("long_short")
     if ls:
@@ -243,15 +258,19 @@ def texto_posicionamiento(pos, sesgo):
     if pos.get("oi"):
         lineas.append(f"Interés abierto (Bitget): {pos['oi']:,.0f} BTC")
     if sesgo is not None:
-        if sesgo <= -40:
-            lectura = "🐻 Multitud cargada en SHORT"
-        elif sesgo >= 40:
-            lectura = "🐂 Multitud cargada en LONG"
-        else:
-            lectura = "Posicionamiento equilibrado"
-        lineas.append(f"Sesgo de la multitud: <b>{sesgo:+d}</b> {lectura}")
+        lineas.append(f"Sesgo de la multitud: <b>{sesgo:+d}</b> {etiqueta_multitud(sesgo)}")
+    # Qué exchanges respondieron hoy: si cambian, el promedio no es comparable con el de otros días
+    fuentes = []
+    if f_ls:
+        fuentes.append("Cuentas: " + ", ".join(f_ls))
+    if f_fu:
+        fuentes.append("Funding: " + ", ".join(f_fu))
     if fuentes:
-        lineas.append(f"<i>{', '.join(fuentes)}</i>")
+        lineas.append(f"<i>{' | '.join(fuentes)}</i>")
+    faltan = [n for n in EXCHANGES_LS if n not in f_ls]
+    if f_ls and faltan:
+        lineas.append(f"<i>Sin respuesta en cuentas: {', '.join(faltan)} (el % se compara contra el promedio "
+                      "propio de cada exchange, así que la lectura sigue siendo válida)</i>")
     if pos.get("fallos"):
         lineas.append(f"<i>Sin datos: {', '.join(pos['fallos'])}</i>")
     return "\n".join(lineas)
