@@ -129,6 +129,7 @@ def titulares_macro(dias=1):
             if not titulo or (fecha and fecha < limite):
                 continue
             limpio = re.sub(r"\s+-\s+[^-]{2,40}$", "", titulo)  # quita " - Medio" del final
+            limpio = re.sub(r"\s*\([A-Z0-9]+(?::[A-Za-z0-9]+)+\)\s*$", "", limpio)  # y códigos tipo (CO1:COM:Commodity)
             if EXCLUIR.search(limpio) or CLICKBAIT.search(limpio):
                 continue
             if len(limpio) > 160:
@@ -141,8 +142,16 @@ def titulares_macro(dias=1):
     return salida
 
 
+# "Oil rebounds / jumps / rallies": para el mercado en general es tensión, no apetito por riesgo
+ENERGIA_SUBE = re.compile(
+    r"\b(oil|crude|brent|wti|gas)\b[^,;:]{0,30}\b(rebound|rall|surge|gain|jump|rise|climb|soar|spike)", re.IGNORECASE)
+
+
 def _puntuar(titulo):
-    return sum(w for p, w in P_ON if p.search(titulo)) - sum(w for p, w in P_OFF if p.search(titulo))
+    off = sum(w for p, w in P_OFF if p.search(titulo))
+    if ENERGIA_SUBE.search(titulo):
+        return -max(1, off)
+    return sum(w for p, w in P_ON if p.search(titulo)) - off
 
 
 def analizar_macro(precios, titulares, n=3, clave="dia"):

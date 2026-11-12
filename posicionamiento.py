@@ -259,6 +259,11 @@ def texto_posicionamiento(pos, sesgo):
         lineas.append(f"Interés abierto (Bitget): {pos['oi']:,.0f} BTC")
     if sesgo is not None:
         lineas.append(f"Sesgo de la multitud: <b>{sesgo:+d}</b> {etiqueta_multitud(sesgo)}")
+        # El sesgo compara contra el promedio de 30 días: si la gente lleva semanas en long, eso ya
+        # parece "normal" aunque siga siendo una multitud en long.
+        if ls and ls["pct_long"] >= 70 and sesgo < 15:
+            lineas.append(f"Ojo: {ls['pct_long']:.0f}% de las cuentas sigue en long. Sale \"equilibrado\" solo porque "
+                          "lleva semanas así y ese ya es su nivel normal de 30 días.")
     # Qué exchanges respondieron hoy: si cambian, el promedio no es comparable con el de otros días
     fuentes = []
     if f_ls:

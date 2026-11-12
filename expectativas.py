@@ -115,7 +115,17 @@ def polymarket(precio, dias_max=45):
 
     arriba.sort(key=lambda f: f["puntaje"])
     abajo.sort(key=lambda f: f["puntaje"])
-    return {"arriba": arriba[:2], "abajo": abajo[:2]}
+    # Para comparar "tocar arriba" contra "tocar abajo" los dos mercados deben vencer el MISMO día:
+    # 34% a un mes y 6% a cinco días no se pueden restar.
+    comunes = {f["fin"].date() for f in arriba} & {f["fin"].date() for f in abajo}
+    if comunes:
+        def mejor(dia):
+            return (min(f["puntaje"] for f in arriba if f["fin"].date() == dia)
+                    + min(f["puntaje"] for f in abajo if f["fin"].date() == dia))
+        dia = min(comunes, key=mejor)
+        arriba = [f for f in arriba if f["fin"].date() == dia]
+        abajo = [f for f in abajo if f["fin"].date() == dia]
+    return {"arriba": arriba[:2], "abajo": abajo[:2], "comparable": bool(comunes)}
 
 
 # ───────────────────────── 2) DERIBIT (OPCIONES) ─────────────────────────
@@ -216,7 +226,7 @@ def sesgo_expectativas(exp):
     """
     partes = []  # (valor, peso)
     pm = exp.get("polymarket")
-    if pm and pm["arriba"] and pm["abajo"]:
+    if pm and pm["arriba"] and pm["abajo"] and pm.get("comparable", True):
         partes.append(((pm["arriba"][0]["prob"] - pm["abajo"][0]["prob"]) * 100, 1.0))
     op = exp.get("opciones")
     if op:
@@ -245,6 +255,8 @@ def texto_expectativas(exp, sesgo):
                           f"({lado}, vence {f['fin']:%d %b})")
         if not (pm["arriba"] and pm["abajo"]):
             lineas.append("<i>Polymarket solo tiene un lado hoy: no entra en el promedio.</i>")
+        elif not pm.get("comparable", True):
+            lineas.append("<i>Los dos mercados vencen en fechas distintas: no entran en el promedio.</i>")
     op = exp.get("opciones")
     if op:
         lineas.append(f"Opciones Deribit: put/call {op['put_call']:.2f} "

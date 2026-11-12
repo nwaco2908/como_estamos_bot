@@ -59,7 +59,7 @@ NEGATIVAS = {
     "extreme fear": 2, "month low": 2, "year low": 2, "lowest since": 2, "lowest in": 2,
 }
 POSITIVAS = {
-    "rally": 1, "surge": 1, "soar": 1, "jump": 1, "climb": 1, "gain": 1, "rise": 1,
+    "rally": 1, "rallies": 1, "surge": 1, "soar": 1, "jump": 1, "climb": 1, "gain": 1, "rise": 1,
     "rises": 1, "bull": 1, "inflow": 1, "rebound": 1, "recover": 1, "breakout": 1,
     "approve": 1, "approval": 1, "adopt": 1, "accumulat": 1, "buys": 1, "buying": 1,
     "optimis": 1, "strong": 1, "record": 1, "higher": 1, "upside": 1,
@@ -85,6 +85,10 @@ ANULA_NEG = re.compile(
 RESILIENCIA = re.compile(
     r"\b(holds?|holding|steadies|steady|stabili[sz]es?|resilien\w*|shrugs? off|defies|defying|unfazed|"
     r"ignores?|weathers?|withstands?|stays? above|remains? above|refuses to)\b", re.IGNORECASE)
+# "Needs a close above X to spark rebound", "without betting on a rally may not pay": condicionan, no afirman
+CONDICIONAL = re.compile(
+    r"\b(needs?|must|has to|have to)\b[^;:]*\bto\b|\bmay not\b|\bmight not\b|\bwithout\b|\bunless\b|\bif\b",
+    re.IGNORECASE)
 IMPUESTO = re.compile(r"\b(tax|taxes|taxation|levy|levies)\b", re.IGNORECASE)
 # Preguntas y predicciones: especulan, no describen lo que pasa
 ESPECULATIVO = re.compile(r"\?\s*$|^\W*(prediction|opinion|could|will|can|what if|is it)\b", re.IGNORECASE)
@@ -205,6 +209,7 @@ def _puntuar(titulo):
         pos += 1
         t = t.replace(m.group(0), " ")
 
+    condicional = bool(CONDICIONAL.search(t))
     impuesto = bool(IMPUESTO.search(t))
     retro = bool(RETROSPECTIVO.search(t))
     record_malo = bool(RECORD_NEGATIVO.search(t))
@@ -217,6 +222,8 @@ def _puntuar(titulo):
     for pat, palabra, peso in PAT_POS:
         if not pat.search(t):
             continue
+        if condicional:
+            continue  # "necesita X para rebotar" no es una subida
         if impuesto and palabra in _PALABRAS_GANANCIA:
             continue  # "tax on crypto gains" no es una ganancia
         if palabra in _PALABRAS_RECORD and (retro or especulativo or record_malo):

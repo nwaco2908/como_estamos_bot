@@ -217,7 +217,8 @@ def evaluar(velas, est, fg_hist, sent_hoy, noticias_hoy, sesgo_pos, sesgo_exp, h
                 lectura = "Noticias muy positivas y el precio ya no hace máximos. Esperar CHoCH bajista."
             elif no_nuevos_max and muy_positivo:
                 nivel, titulo = "🟡", "VIGILANCIA — Euforia sin nuevos máximos"
-                lectura = "Mucho optimismo y el precio se frena. Proteger ganancias."
+                lectura = ("Mucho optimismo y el precio se frena. Informativo: en el backtest la euforia "
+                           "no anticipó caídas.")
             elif nuevo_maximo:
                 nivel, titulo = "🟢", "Tendencia sana"
                 lectura = "Noticias positivas y el precio sigue haciendo máximos. A favor de la tendencia."
@@ -228,7 +229,8 @@ def evaluar(velas, est, fg_hist, sent_hoy, noticias_hoy, sesgo_pos, sesgo_exp, h
                 lectura += " La multitud está en short: combustible extra para subir."
         elif negativo and not choch_baj:
             nivel, titulo = "🟢", "FUERZA — Noticias negativas y el precio aguanta"
-            lectura = "La estructura alcista resiste las malas noticias. Buscar compra en retroceso."
+            lectura = ("La estructura alcista resiste las malas noticias. "
+                       "(En el backtest esta señal sola no mostró ventaja.)")
         else:
             titulo, lectura = "Alcista sin extremos", "Sentimiento sin extremos: dejar que la estructura mande."
     else:

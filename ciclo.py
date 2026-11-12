@@ -106,7 +106,8 @@ def analizar_ciclo(velas, fg, funding_prom=None, noticias_prom=None):
             lectura = "CHoCH alcista en la estructura principal: la marea pudo haber cambiado a favor de los toros."
         elif dias_desde_max <= 5 and retroceso < RETROCESO_MIN and fg7 is not None and fg7 >= 70:
             fase, icono = "Euforia en máximos", "⚠️"
-            lectura = "Codicia extrema con el precio en máximos: cuidado, aquí se forman los techos."
+            lectura = ("Codicia extrema con el precio en máximos. En el backtest la euforia fue más impulso que "
+                       "techo: no es señal de venta por sí sola.")
         elif retroceso < RETROCESO_MIN:
             fase, icono = "Tendencia alcista sana", "🟢"
             lectura = "Régimen alcista y el precio cerca de sus máximos."
@@ -121,7 +122,8 @@ def analizar_ciclo(velas, fg, funding_prom=None, noticias_prom=None):
         elif miedo:
             fase, icono = "Retroceso con miedo", "🟡"
             lectura = (f"El precio retrocede {retroceso:.0f}% desde el máximo y el sentimiento se volvió negativo, "
-                       "con la estructura principal intacta. Vigilar si deja de caer.")
+                       "con la estructura principal intacta. Fase de ESPERAR: en el backtest, comprar aquí "
+                       "antes de que el precio deje de caer salió mal.")
         else:
             fase, icono = "Retroceso sin miedo", "⚪"
             lectura = f"Retroceso de {retroceso:.0f}% sin pánico: corrección normal, sin ventaja contrarian clara."

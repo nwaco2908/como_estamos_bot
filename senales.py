@@ -14,21 +14,30 @@ from datetime import datetime, timezone
 
 HORIZONTE = 7
 
-# Sesgo esperado de cada fase del régimen y de cada escenario diario
+# Sesgo esperado de cada fase del régimen y de cada escenario diario.
+# Revisado con el backtest 2018–2026 (nov 2026): a las señales que el historial contradijo con
+# claridad (acierto ≤ 47% con 10+ casos) se les QUITÓ la dirección (0 = solo informativa).
+# No se invirtieron: darles la vuelta sería ajustar el bot al pasado.
 SESGO_FASE = {
-    "Retroceso absorbido": 1, "Reanudación alcista": 1, "Retroceso con miedo": 1,
-    "Rebote con miedo": 1, "Capitulación": 1, "Cambio a régimen alcista": 1, "Tendencia alcista sana": 1,
-    "Rebote agotado": -1, "Reanudación bajista": -1, "Rebote con optimismo": -1,
-    "Euforia en máximos": -1, "Cambio a régimen bajista": -1, "Tendencia bajista": -1,
+    "Retroceso absorbido": 1, "Reanudación alcista": 1, "Rebote con miedo": 1,
+    "Cambio a régimen alcista": 1, "Tendencia alcista sana": 1,
+    "Reanudación bajista": -1, "Cambio a régimen bajista": -1,
+    # Sin dirección
+    "Retroceso con miedo": 0,     # el precio siguió cayendo: es fase de ESPERAR
+    "Capitulación": 0,            # atrapar un cuchillo
+    "Euforia en máximos": 0,      # en BTC la euforia fue impulso, no techo
+    "Rebote agotado": 0, "Rebote con optimismo": 0, "Tendencia bajista": 0,
 }
 SESGO_ESC = {
     "CONFIRMACIÓN — Posible suelo": 1, "PREPARACIÓN — Posible suelo": 1,
     "VIGILANCIA — El precio dejó de caer": 1, "VIGILANCIA — Pánico sin reacción todavía": 1,
-    "FUERZA — Noticias negativas y el precio aguanta": 1, "Tendencia sana": 1,
+    "Tendencia sana": 1,
     "CONFIRMACIÓN — Posible techo": -1, "PREPARACIÓN — Posible distribución": -1,
-    "VIGILANCIA — Euforia sin nuevos máximos": -1, "DEBILIDAD — Noticias positivas sin reacción": -1,
-    "Continuación bajista": -1,
-    # Avisos sin dirección: el precio paró, pero la multitud sigue en long
+    "DEBILIDAD — Noticias positivas sin reacción": -1,
+    # Sin dirección
+    "FUERZA — Noticias negativas y el precio aguanta": 0,
+    "VIGILANCIA — Euforia sin nuevos máximos": 0,
+    "Continuación bajista": 0,
     "VIGILANCIA — Barrido sin capitulación": 0, "VIGILANCIA — Pausa sin capitulación": 0,
 }
 
