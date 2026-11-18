@@ -688,5 +688,52 @@
   "avisos": [
    "posicionamiento (ratio de cuentas de un solo exchange: OKX)"
   ]
+ },
+ {
+  "fecha": "2026-11-17",
+  "cierre": 64908.7,
+  "maximo": 65425.7,
+  "minimo": 63300.0,
+  "tendencia": "bajista",
+  "eventos": [],
+  "fear_greed": 11,
+  "noticias": -75,
+  "noticias_crudo": -75,
+  "n_titulares": 107,
+  "narrativas": {
+   "capitulat": 3,
+   "fraud": 1,
+   "month low": 1,
+   "extreme fear": 1,
+   "year low": 1
+  },
+  "resiliencia": 1,
+  "sentimiento": -76,
+  "absorcion": 47,
+  "sesgo_multitud": 2,
+  "ratio_long_short": 3.407,
+  "desvio_long_short": 5.7,
+  "fuentes_long_short": [
+   "Bitget",
+   "OKX"
+  ],
+  "funding": 2.3377636326800002e-05,
+  "sesgo_expectativas": -27,
+  "escenario": "🟡 VIGILANCIA — El precio dejó de caer",
+  "confluencias": "suelo 2/5",
+  "giro": [
+   81169.2,
+   "sobre",
+   "CHoCH alcista"
+  ],
+  "continuacion": [
+   61957.4,
+   "bajo",
+   "nuevo mínimo del tramo"
+  ],
+  "regimen": "alcista",
+  "fase_regimen": "🟡 Retroceso con miedo",
+  "macro": -59,
+  "avisos": []
  }
 ]
