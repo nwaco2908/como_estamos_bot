@@ -972,5 +972,48 @@
   "fase_regimen": "🟡 Retroceso con miedo",
   "macro": -90,
   "avisos": []
+ },
+ {
+  "fecha": "2026-11-23",
+  "cierre": 61238.4,
+  "maximo": 64567.9,
+  "minimo": 60340.1,
+  "tendencia": "bajista",
+  "eventos": [],
+  "fear_greed": 11,
+  "noticias": 12,
+  "noticias_crudo": 12,
+  "n_titulares": 105,
+  "narrativas": {
+   "year low": 2
+  },
+  "resiliencia": 0,
+  "sentimiento": -33,
+  "absorcion": -9,
+  "sesgo_multitud": -1,
+  "ratio_long_short": 3.279,
+  "desvio_long_short": 2.9,
+  "fuentes_long_short": [
+   "Bitget",
+   "OKX"
+  ],
+  "funding": 4.6737148323833335e-05,
+  "sesgo_expectativas": -36,
+  "escenario": "🟠 PREPARACIÓN — Posible suelo",
+  "confluencias": "suelo 3/5",
+  "giro": [
+   81169.2,
+   "sobre",
+   "CHoCH alcista"
+  ],
+  "continuacion": [
+   55098.5,
+   "bajo",
+   "nuevo mínimo del tramo"
+  ],
+  "regimen": "alcista",
+  "fase_regimen": "🟡 Retroceso con miedo",
+  "macro": 59,
+  "avisos": []
  }
 ]
