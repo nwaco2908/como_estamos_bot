@@ -1150,5 +1150,53 @@
   "fase_regimen": "🔴 Reanudación alcista",
   "macro": -35,
   "avisos": []
+ },
+ {
+  "fecha": "2026-11-27",
+  "cierre": 59893.4,
+  "maximo": 62201.3,
+  "minimo": 58755.8,
+  "tendencia": "bajista",
+  "eventos": [],
+  "fear_greed": 10,
+  "noticias": -41,
+  "noticias_crudo": -41,
+  "n_titulares": 99,
+  "narrativas": {
+   "capitulat": 2,
+   "collapse": 1,
+   "free fall": 1,
+   "extreme fear": 1,
+   "year low": 1,
+   "ponzi": 1
+  },
+  "resiliencia": 0,
+  "sentimiento": -60,
+  "absorcion": -13,
+  "sesgo_multitud": 4,
+  "ratio_long_short": 3.571,
+  "desvio_long_short": 8.2,
+  "fuentes_long_short": [
+   "Bitget",
+   "OKX"
+  ],
+  "funding": 3.7694557350333334e-06,
+  "sesgo_expectativas": -36,
+  "escenario": "🟠 PREPARACIÓN — Posible suelo",
+  "confluencias": "suelo 3/5",
+  "giro": [
+   81169.2,
+   "sobre",
+   "CHoCH alcista"
+  ],
+  "continuacion": [
+   55098.5,
+   "bajo",
+   "BOS bajista"
+  ],
+  "regimen": "alcista",
+  "fase_regimen": "🔴 Reanudación alcista",
+  "macro": 24,
+  "avisos": []
  }
 ]
